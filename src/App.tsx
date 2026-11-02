@@ -284,7 +284,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-[#0f172a] text-white flex flex-col selection:bg-[#34d399] selection:text-[#0f172a] antialiased">
+    <div className="min-h-screen bg-bg-base text-text-primary flex flex-col selection:bg-accent selection:text-ink-on-accent antialiased">
       {/* Top Navbar */}
       <Navbar
         currentPath={currentPath}
@@ -293,10 +293,12 @@ export default function App() {
         onLogoutAdmin={handleLogoutAdmin}
         onOpenConfigModal={() => setIsConfigModalOpen(true)}
         onOpenScanner={() => setIsScannerOpen(true)}
+        currentUserDni={currentUserDni}
+        onLogoutMember={() => setCurrentUserDni(null)}
       />
 
       {/* Main Body */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 py-3 sm:py-6">
+      <main className={isAdminRoute ? 'flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 py-3 sm:py-6' : 'flex-1 w-full'}>
         {loading ? (
           <div className="flex items-center justify-center min-h-[50vh]">
             <div className="text-center space-y-3">
@@ -332,15 +334,17 @@ export default function App() {
         )}
       </main>
 
-      {/* Footer */}
-      <footer className="border-t border-[#34d399]/20 bg-[#0f172a] py-4 text-center text-xs text-slate-400 no-print">
-        <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2 font-mono text-[11px]">
-          <div className="flex items-center gap-2 mx-auto sm:mx-0">
-            <img src={isologo} alt="Acuva" className="w-4 h-4 object-contain" />
-            <span>&copy; {new Date().getFullYear()} Acuva • Sistema de Gestión y Carnets QR</span>
+      {/* Footer (solo para rutas admin fuera de sesión, el portal de socios tiene su propio pie) */}
+      {isAdminRoute && (
+        <footer className="border-t border-accent/20 bg-bg-base py-4 text-center text-xs text-text-muted no-print">
+          <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2 font-mono text-[11px]">
+            <div className="flex items-center gap-2 mx-auto sm:mx-0">
+              <img src={isologo} alt="Acuva" className="w-4 h-4 object-contain" />
+              <span>&copy; {new Date().getFullYear()} Acuva • Sistema de Gestión y Carnets QR</span>
+            </div>
           </div>
-        </div>
-      </footer>
+        </footer>
+      )}
 
       {/* Supabase Configuration Modal */}
       <SupabaseConfigModal
