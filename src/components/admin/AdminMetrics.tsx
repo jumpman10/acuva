@@ -1,5 +1,6 @@
 import React from 'react';
-import { Users, Check, Clock, AlertCircle } from 'lucide-react';
+import { Users, Check, Clock, CircleAlert } from 'lucide-react';
+import { Card } from '../ui';
 
 export interface AdminMetricsProps {
   totalMembers: number;
@@ -21,137 +22,99 @@ export const AdminMetrics: React.FC<AdminMetricsProps> = ({
   const expiringPct = totalMembers > 0 ? (expiringTwoDaysMembers / safeTotal) * 100 : 0;
   const expiredPct = totalMembers > 0 ? (expiredOrUnpaidMembers / safeTotal) * 100 : 0;
 
+  const metrics = [
+    {
+      id: 'total',
+      label: 'Total socios',
+      value: totalMembers,
+      icon: Users,
+      iconBg: 'bg-accent-soft',
+      iconColor: 'text-accent',
+      barColor: 'bg-accent',
+      pct: 100,
+      footer: 'Registrados en Acuva',
+      onClick: undefined,
+    },
+    {
+      id: 'active',
+      label: 'Al día',
+      value: activeMembers,
+      icon: Check,
+      iconBg: 'bg-accent-soft',
+      iconColor: 'text-accent',
+      barColor: 'bg-accent',
+      pct: activePct,
+      footer: `Membresía activa · ${activeMembers} de ${totalMembers}`,
+      onClick: undefined,
+    },
+    {
+      id: 'expiring',
+      label: 'Vence ≤ 2 días',
+      value: expiringTwoDaysMembers,
+      icon: Clock,
+      iconBg: 'bg-status-warn-soft',
+      iconColor: 'text-status-warn',
+      barColor: 'bg-status-warn',
+      pct: expiringPct,
+      footer: `Por renovar · ${expiringTwoDaysMembers} de ${totalMembers}`,
+      onClick: onOpenExpiringModal,
+    },
+    {
+      id: 'expired',
+      label: 'Vencidos',
+      value: expiredOrUnpaidMembers,
+      icon: CircleAlert,
+      iconBg: 'bg-status-danger-soft',
+      iconColor: 'text-status-danger',
+      barColor: 'bg-status-danger',
+      pct: expiredPct,
+      footer: 'Acceso denegado',
+      onClick: undefined,
+    },
+  ];
+
   return (
-    <div>
-      {/* DESKTOP VIEW (4 distinct cards in a 4-column grid) */}
-      <div className="hidden lg:grid grid-cols-4 gap-4">
-        {/* Card 1: Total socios */}
-        <div className="bg-[#0e1626] hover:border-[#34d399]/50 border border-slate-800/80 rounded-2xl p-4 flex flex-col justify-between shadow-sm">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-slate-400">Total socios</span>
-            <div className="w-8 h-8 rounded-lg bg-[#122e2a] flex items-center justify-center text-[#34d399]">
-              <Users className="w-4 h-4" />
-            </div>
-          </div>
-          <div>
-            <div className="text-3xl font-black text-white font-mono mt-3">{totalMembers}</div>
-            <div className="text-xs text-slate-400 mt-2">Registrados en Acuva</div>
-          </div>
-        </div>
-
-        {/* Card 2: Al día */}
-        <div className="bg-[#0e1626] hover:border-[#34d399]/50 border border-slate-800/80 rounded-2xl p-4 flex flex-col justify-between shadow-sm">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-slate-400">Al día</span>
-            <div className="w-8 h-8 rounded-lg bg-[#122e2a] flex items-center justify-center text-[#34d399]">
-              <Check className="w-4 h-4 stroke-[2.5]" />
-            </div>
-          </div>
-          <div>
-            <div className="text-3xl font-black text-white font-mono mt-3">{activeMembers}</div>
-            <div className="w-full h-1.5 rounded-full bg-slate-800 mt-3 overflow-hidden">
-              <div
-                className="h-full rounded-full bg-[#34d399] transition-all"
-                style={{ width: `${Math.min(100, Math.round(activePct))}%` }}
-              />
-            </div>
-            <div className="text-xs text-slate-400 mt-2">
-              Membresía activa · {activeMembers} de {totalMembers}
-            </div>
-          </div>
-        </div>
-
-        {/* Card 3: Vence <= 2 días */}
-        <div
-          className="bg-[#0e1626] hover:border-[#fbbf24]/50 border border-slate-800/80 rounded-2xl p-4 flex flex-col justify-between shadow-sm transition-colors"
-          title="Ver socios por vencer en 2 días"
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-slate-400">Vence ≤ 2 días</span>
-            <div className="w-8 h-8 rounded-lg bg-[#2a2212] flex items-center justify-center text-[#fbbf24]">
-              <Clock className="w-4 h-4" />
-            </div>
-          </div>
-          <div>
-            <div className="text-3xl font-black text-white font-mono mt-3">{expiringTwoDaysMembers}</div>
-            <div className="w-full h-1.5 rounded-full bg-slate-800 mt-3 overflow-hidden">
-              <div
-                className="h-full rounded-full bg-[#fbbf24] transition-all"
-                style={{ width: `${Math.min(100, Math.round(expiringPct))}%` }}
-              />
-            </div>
-            <div className="text-xs text-slate-400 mt-2">
-              Por renovar · {expiringTwoDaysMembers} de {totalMembers}
-            </div>
-          </div>
-        </div>
-
-        {/* Card 4: Vencidos */}
-        <div className="bg-[#0e1626] hover:border-[#f87171]/50 border border-slate-800/80 rounded-2xl p-4 flex flex-col justify-between shadow-sm">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-slate-400">Vencidos</span>
-            <div className="w-8 h-8 rounded-lg bg-[#2d1519] flex items-center justify-center text-[#f87171]">
-              <AlertCircle className="w-4 h-4" />
-            </div>
-          </div>
-          <div>
-            <div className="text-3xl font-black text-white font-mono mt-3">{expiredOrUnpaidMembers}</div>
-            <div className="text-xs text-slate-400 mt-2">Acceso denegado</div>
-          </div>
-        </div>
-      </div>
-
-      {/* MOBILE VIEW (Single consolidated summary card) */}
-      <div className="lg:hidden bg-[#0e1626] border border-slate-800/90 rounded-2xl p-4 space-y-3 shadow-sm">
-        <div className="text-xs font-medium text-slate-400">Total socios</div>
-        <div className="flex items-baseline justify-between">
-          <div className="text-4xl font-black text-white font-mono tracking-tight">{totalMembers}</div>
-          <div className="text-xs text-slate-400">Registrados en Acuva</div>
-        </div>
-
-        {/* Multi-segment split bar */}
-        <div className="h-2 w-full rounded-full bg-slate-800 flex overflow-hidden gap-0.5">
-          {activePct > 0 && (
-            <div
-              className="h-full bg-[#34d399] rounded-full transition-all"
-              style={{ width: `${activePct}%` }}
-            />
-          )}
-          {expiringPct > 0 && (
-            <div
-              className="h-full bg-[#fbbf24] rounded-full transition-all"
-              style={{ width: `${expiringPct}%` }}
-            />
-          )}
-          {expiredPct > 0 && (
-            <div
-              className="h-full bg-[#f87171] rounded-full transition-all"
-              style={{ width: `${expiredPct}%` }}
-            />
-          )}
-        </div>
-
-        {/* Legend below with dots */}
-        <div className="flex items-center justify-between text-xs pt-1 text-slate-300">
-          <div className="flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-[#34d399] shrink-0" />
-            <span>Al día {activeMembers}</span>
-          </div>
-          <button
-            type="button"
-            onClick={onOpenExpiringModal}
-            className="flex items-center gap-1.5 hover:text-white transition-colors"
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 select-none">
+      {metrics.map((m) => {
+        const Icon = m.icon;
+        return (
+          <Card
+            key={m.id}
+            onClick={m.onClick}
+            className={`flex flex-col justify-between p-3.5 sm:p-[18px] ${
+              m.onClick ? 'cursor-pointer hover:border-border-default transition-colors' : ''
+            }`}
           >
-            <span className="w-2 h-2 rounded-full bg-[#fbbf24] shrink-0" />
-            <span>≤ 2 días {expiringTwoDaysMembers}</span>
-          </button>
-          <div className="flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-[#f87171] shrink-0" />
-            <span>Vencidos {expiredOrUnpaidMembers}</span>
-          </div>
-        </div>
-      </div>
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[13px] font-semibold text-text-muted">
+                {m.label}
+              </span>
+              <div
+                className={`w-[34px] h-[34px] rounded-[10px] flex items-center justify-center shrink-0 ${m.iconBg} ${m.iconColor}`}
+              >
+                <Icon size={18} strokeWidth={2.5} />
+              </div>
+            </div>
+
+            <div className="mt-2">
+              <div className="text-[30px] font-extrabold text-text-primary font-mono tracking-tight leading-none">
+                {m.value}
+              </div>
+
+              <div className="w-full h-1.5 rounded-full bg-surface-hover mt-3 overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all ${m.barColor}`}
+                  style={{ width: `${Math.min(100, Math.max(m.pct, 0))}%` }}
+                />
+              </div>
+
+              <p className="text-xs text-text-muted mt-2 truncate">
+                {m.footer}
+              </p>
+            </div>
+          </Card>
+        );
+      })}
     </div>
   );
 };
-

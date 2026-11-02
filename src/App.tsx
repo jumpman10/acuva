@@ -156,7 +156,7 @@ export default function App() {
   // If authenticated admin on admin route, render modern Phase 1 Admin Layout
   if (isAdminRoute && adminUser) {
     return (
-      <div className="min-h-screen bg-[#080c14] text-white flex flex-col lg:flex-row antialiased selection:bg-[#34d399] selection:text-[#080c14]">
+      <div className="min-h-screen bg-bg-deep text-text-primary flex flex-col lg:flex-row antialiased selection:bg-accent selection:text-ink-on-accent">
         {/* Desktop Sidebar (hidden lg:flex) */}
         <AdminSidebar
           activeTab={adminTab}
@@ -170,15 +170,16 @@ export default function App() {
         />
 
         {/* Content Column */}
-        <div className="flex-1 flex flex-col min-w-0 min-h-screen bg-[#080c14]">
+        <div className="flex-1 flex flex-col min-w-0 min-h-screen bg-bg-deep">
           {/* Mobile Header (< lg) */}
           <AdminMobileHeader
             adminUser={adminUser}
             onLogoutAdmin={handleLogoutAdmin}
+            onOpenScanner={() => setIsScannerOpen(true)}
           />
 
           {/* Main scrollable content area */}
-          <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 py-4 sm:py-6 pb-24 lg:pb-8">
+          <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-4 sm:py-6 pb-28 lg:pb-8">
             {loading ? (
               <div className="flex items-center justify-center min-h-[50vh]">
                 <div className="text-center space-y-3">
