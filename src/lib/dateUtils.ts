@@ -77,6 +77,7 @@ export function getDaysRemaining(expirationDateStr: string): number {
 }
 
 /**
+ * @deprecated Use `getMembershipTone` from `src/lib/status` instead.
  * Determine dynamic status based on expiration date and payment state
  */
 export function getCalculatedStatus(
