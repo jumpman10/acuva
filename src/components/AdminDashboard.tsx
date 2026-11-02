@@ -1,24 +1,23 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Member, AccessLog, PaymentLog, RenewMemberOptions } from '../types';
-import { getCalculatedStatus, getDaysRemaining, formatDisplayDate } from '../lib/dateUtils';
+import { getMembershipTone, formatMoney, formatShortDate } from '../lib/status';
 import { RenewMemberModal } from './RenewMemberModal';
 import { Pagination } from './Pagination';
 import { AdminMetrics } from './admin/AdminMetrics';
 import { AdminFiltersBar } from './admin/AdminFiltersBar';
 import { AdminMembersTable } from './admin/AdminMembersTable';
 import { AdminMemberCard } from './admin/AdminMemberCard';
+import { Card, MemberAvatar, StatusBadge, Button } from './ui';
 import {
-  Users,
-  UserPlus,
-  QrCode,
-  CreditCard,
-  History,
-  FileSpreadsheet
+  ScanLine,
+  FileSpreadsheet,
+  Check,
+  X,
 } from 'lucide-react';
 import {
   exportMembersToExcel,
   exportAccessLogsToExcel,
-  exportPaymentLogsToExcel
+  exportPaymentLogsToExcel,
 } from '../lib/excelExport';
 
 interface AdminDashboardProps {
@@ -44,7 +43,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   disciplines = [],
   onOpenNewMember,
   onOpenEditMember,
-  onDeleteMember,
   onRenewMember,
   onOpenScanner,
   onOpenExpiringModal,
@@ -52,38 +50,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   activeTab: controlledActiveTab,
   onTabChange,
 }) => {
-  const [internalActiveTab, setInternalActiveTab] = useState<'members' | 'access_logs' | 'payment_logs'>('members');
+  const [internalActiveTab, setInternalActiveTab] = useState<
+    'members' | 'access_logs' | 'payment_logs'
+  >('members');
   const activeTab = controlledActiveTab ?? internalActiveTab;
-  const setActiveTab = (tab: 'members' | 'access_logs' | 'payment_logs') => {
-    if (onTabChange) {
-      onTabChange(tab);
-    } else {
-      setInternalActiveTab(tab);
-    }
-  };
+
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'activo' | 'por_vencer' | 'vencido'>('all');
   const [disciplineFilter, setDisciplineFilter] = useState<string>('all');
   const [renewingMember, setRenewingMember] = useState<Member | null>(null);
 
-  // Statistics
+  // Statistics using getMembershipTone
   const totalMembers = members.length;
-  const activeMembers = members.filter((m) => {
-    const s = getCalculatedStatus(m.fecha_vencimiento, m.estado_pago);
-    return s.membershipStatus === 'activo';
-  }).length;
-
-  const expiringTwoDaysMembers = members.filter((m) => {
-    const days = getDaysRemaining(m.fecha_vencimiento);
-    return days >= 0 && days <= 2 && m.estado_pago === 'pagado';
-  }).length;
-
-  const expiredOrUnpaidMembers = members.filter((m) => {
-    const s = getCalculatedStatus(m.fecha_vencimiento, m.estado_pago);
-    return s.membershipStatus === 'vencido';
-  }).length;
-
-  const estimatedMonthlyRevenue = members.reduce((sum, m) => sum + (m.monto_mensual || 25000), 0);
+  const activeMembers = members.filter((m) => getMembershipTone(m).status === 'activo').length;
+  const expiringTwoDaysMembers = members.filter((m) => getMembershipTone(m).status === 'por_vencer').length;
+  const expiredOrUnpaidMembers = members.filter((m) => getMembershipTone(m).status === 'vencido').length;
 
   const disciplinesList = useMemo(() => {
     if (disciplines && disciplines.length > 0) {
@@ -93,58 +74,54 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   }, [disciplines, members]);
 
   // Filter members
-  const filteredMembers = members.filter((m) => {
-    const matchesSearch =
-      m.nombre.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      m.apellido.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      m.dni.includes(searchQuery) ||
-      m.telefono.includes(searchQuery);
+  const filteredMembers = useMemo(() => {
+    return members.filter((m) => {
+      const q = searchQuery.toLowerCase().trim();
+      const matchesSearch =
+        !q ||
+        m.nombre.toLowerCase().includes(q) ||
+        m.apellido.toLowerCase().includes(q) ||
+        m.dni.includes(q) ||
+        m.telefono.includes(q);
 
-    if (!matchesSearch) return false;
+      if (!matchesSearch) return false;
 
-    if (disciplineFilter !== 'all' && m.disciplina !== disciplineFilter) {
-      return false;
-    }
+      if (disciplineFilter !== 'all' && m.disciplina !== disciplineFilter) {
+        return false;
+      }
 
-    const s = getCalculatedStatus(m.fecha_vencimiento, m.estado_pago);
-    if (statusFilter === 'activo') return s.membershipStatus === 'activo';
-    if (statusFilter === 'por_vencer') return s.membershipStatus === 'por_vencer';
-    if (statusFilter === 'vencido') return s.membershipStatus === 'vencido';
+      const tone = getMembershipTone(m);
+      if (statusFilter === 'activo') return tone.status === 'activo';
+      if (statusFilter === 'por_vencer') return tone.status === 'por_vencer';
+      if (statusFilter === 'vencido') return tone.status === 'vencido';
 
-    return true;
-  });
+      return true;
+    });
+  }, [members, searchQuery, disciplineFilter, statusFilter]);
 
-  // Pagination configuration (15 items max per page)
+  // Pagination configuration
   const PAGE_SIZE = 15;
   const [membersPage, setMembersPage] = useState(1);
   const [accessLogsPage, setAccessLogsPage] = useState(1);
   const [paymentLogsPage, setPaymentLogsPage] = useState(1);
 
-  // Reset page when member filters change
   useEffect(() => {
     setMembersPage(1);
   }, [searchQuery, statusFilter, disciplineFilter]);
 
-  // Keep page within valid bounds if records change
   useEffect(() => {
     const maxPage = Math.max(1, Math.ceil(filteredMembers.length / PAGE_SIZE));
-    if (membersPage > maxPage) {
-      setMembersPage(maxPage);
-    }
+    if (membersPage > maxPage) setMembersPage(maxPage);
   }, [filteredMembers.length, membersPage]);
 
   useEffect(() => {
     const maxPage = Math.max(1, Math.ceil(accessLogs.length / PAGE_SIZE));
-    if (accessLogsPage > maxPage) {
-      setAccessLogsPage(maxPage);
-    }
+    if (accessLogsPage > maxPage) setAccessLogsPage(maxPage);
   }, [accessLogs.length, accessLogsPage]);
 
   useEffect(() => {
     const maxPage = Math.max(1, Math.ceil(paymentLogs.length / PAGE_SIZE));
-    if (paymentLogsPage > maxPage) {
-      setPaymentLogsPage(maxPage);
-    }
+    if (paymentLogsPage > maxPage) setPaymentLogsPage(maxPage);
   }, [paymentLogs.length, paymentLogsPage]);
 
   const paginatedMembers = useMemo(() => {
@@ -162,91 +139,179 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     return paymentLogs.slice(start, start + PAGE_SIZE);
   }, [paymentLogs, paymentLogsPage]);
 
-  const handleRenewClick = (member: Member) => {
-    setRenewingMember(member);
-  };
+  // Date for Content Header: "Lunes 2 de noviembre"
+  const longDate = useMemo(() => {
+    const d = new Date();
+    const str = d.toLocaleDateString('es-AR', {
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long',
+    });
+    return (str.charAt(0).toUpperCase() + str.slice(1)).replace(',', '');
+  }, []);
 
-  const handleDeleteClick = async (member: Member) => {
-    const confirmDelete = window.confirm(
-      `¿Eliminar a ${member.nombre} ${member.apellido} (DNI: ${member.dni})?`
-    );
-    if (confirmDelete) {
-      await onDeleteMember(member.id);
+  const tabTitle =
+    activeTab === 'members'
+      ? 'Socios'
+      : activeTab === 'access_logs'
+      ? 'Portería'
+      : 'Pagos';
+
+  // --- Portería helpers & metrics ---
+  const todayLogs = useMemo(() => {
+    const now = new Date();
+    return accessLogs.filter((log) => {
+      const logDate = new Date(log.timestamp);
+      return (
+        logDate.getFullYear() === now.getFullYear() &&
+        logDate.getMonth() === now.getMonth() &&
+        logDate.getDate() === now.getDate()
+      );
+    });
+  }, [accessLogs]);
+
+  const authorizedToday = todayLogs.filter((l) => l.autorizado).length;
+  const deniedToday = todayLogs.filter((l) => !l.autorizado).length;
+  const totalToday = todayLogs.length;
+
+  const groupedAccessLogs = useMemo(() => {
+    const groups: { [key: string]: { label: string; logs: AccessLog[] } } = {};
+    const now = new Date();
+
+    const getLabel = (d: Date) => {
+      const isToday =
+        d.getFullYear() === now.getFullYear() &&
+        d.getMonth() === now.getMonth() &&
+        d.getDate() === now.getDate();
+      if (isToday) return 'Hoy';
+
+      const yesterday = new Date(now);
+      yesterday.setDate(now.getDate() - 1);
+      const isYesterday =
+        d.getFullYear() === yesterday.getFullYear() &&
+        d.getMonth() === yesterday.getMonth() &&
+        d.getDate() === yesterday.getDate();
+      if (isYesterday) return 'Ayer';
+
+      const raw = d.toLocaleDateString('es-AR', {
+        day: 'numeric',
+        month: 'short',
+      }).replace('.', '');
+      return raw.charAt(0).toUpperCase() + raw.slice(1);
+    };
+
+    paginatedAccessLogs.forEach((log) => {
+      const date = new Date(log.timestamp);
+      const key = `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`;
+      if (!groups[key]) {
+        groups[key] = {
+          label: getLabel(date),
+          logs: [],
+        };
+      }
+      groups[key].logs.push(log);
+    });
+
+    return Object.entries(groups).map(([dateKey, group]) => ({
+      dateKey,
+      label: group.label,
+      logs: group.logs,
+    }));
+  }, [paginatedAccessLogs]);
+
+  // --- Pagos helpers & metrics ---
+  const paymentStats = useMemo(() => {
+    const now = new Date();
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+    const recentPayments = paymentLogs.filter((p) => {
+      const payDate = new Date(p.fecha);
+      return payDate >= thirtyDaysAgo;
+    });
+
+    const activeList = recentPayments.length > 0 ? recentPayments : paymentLogs;
+    const totalRecaudado = activeList.reduce((sum, p) => sum + (p.monto || 0), 0);
+
+    const methodTotals: Record<string, number> = {
+      Efectivo: 0,
+      Transferencia: 0,
+      Débito: 0,
+      Crédito: 0,
+      'Pago QR': 0,
+    };
+
+    const normalize = (raw: string): string => {
+      const lower = raw.toLowerCase();
+      if (lower.includes('efectivo')) return 'Efectivo';
+      if (lower.includes('transferencia')) return 'Transferencia';
+      if (lower.includes('débito') || lower.includes('debito')) return 'Débito';
+      if (lower.includes('crédito') || lower.includes('credito')) return 'Crédito';
+      if (lower.includes('qr')) return 'Pago QR';
+      return 'Transferencia';
+    };
+
+    activeList.forEach((p) => {
+      if (p.detalles && p.detalles.length > 0) {
+        p.detalles.forEach((d) => {
+          const norm = normalize(d.metodo);
+          methodTotals[norm] = (methodTotals[norm] || 0) + (d.monto || 0);
+        });
+      } else {
+        const norm = normalize(p.metodo || 'Efectivo');
+        methodTotals[norm] = (methodTotals[norm] || 0) + (p.monto || 0);
+      }
+    });
+
+    return {
+      totalRecaudado,
+      methodTotals,
+    };
+  }, [paymentLogs]);
+
+  const formatPaymentMethod = (pay: PaymentLog): string => {
+    if (pay.detalles && pay.detalles.length > 1) {
+      return pay.detalles
+        .map((d) => d.metodo.replace('Tarjeta de ', ''))
+        .join(' + ');
     }
+    return (pay.metodo || 'Efectivo').replace('Tarjeta de ', '');
   };
 
   return (
-    <div className="space-y-4 sm:space-y-6 pb-6">
-      {/* Desktop Header Row (Socios) */}
-      {activeTab === 'members' && (
-        <div className="hidden lg:flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-white tracking-tight">Socios</h1>
-            <p className="text-xs text-slate-400 mt-0.5">{members.length} registrados en Acuva</p>
-          </div>
-          <div className="flex items-center gap-2.5">
-            <button
-              onClick={onOpenNewMember}
-              className="px-3.5 py-2 bg-[#0c1322] hover:bg-[#131c30] text-[#34d399] border border-[#34d399] rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all active:scale-95 shadow-sm"
-            >
-              <UserPlus className="w-4 h-4 stroke-[2]" />
-              <span>Nuevo socio</span>
-            </button>
-            <button
-              onClick={onOpenScanner}
-              className="px-3.5 py-2 bg-[#34d399] hover:bg-[#34d399]/90 text-[#080c14] rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95 shadow-sm"
-            >
-              <QrCode className="w-4 h-4 stroke-[2.5]" />
-              <span>Escanear QR</span>
-            </button>
-          </div>
+    <div className="space-y-5 pb-6">
+      {/* Header de contenido: fecha larga y título de la pestaña; a la derecha Button primary "Escanear QR" */}
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <p className="text-[13px] text-text-muted">{longDate}</p>
+          <h1 className="text-[28px] font-extrabold text-text-primary tracking-tight leading-tight">
+            {tabTitle}
+          </h1>
         </div>
-      )}
 
-      {/* Desktop Header Row (Portería) */}
-      {activeTab === 'access_logs' && (
-        <div className="hidden lg:flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-white tracking-tight">Portería</h1>
-            <p className="text-xs text-slate-400 mt-0.5">{accessLogs.length} registros de accesos</p>
-          </div>
-          <div className="flex items-center gap-2.5">
-            <button
-              onClick={onOpenScanner}
-              className="px-3.5 py-2 bg-[#34d399] hover:bg-[#34d399]/90 text-[#080c14] rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95 shadow-sm"
-            >
-              <QrCode className="w-4 h-4 stroke-[2.5]" />
-              <span>Escanear QR</span>
-            </button>
-          </div>
+        <div className="hidden lg:block">
+          <Button
+            variant="primary"
+            icon={ScanLine}
+            onClick={onOpenScanner}
+          >
+            Escanear QR
+          </Button>
         </div>
-      )}
+      </div>
 
-      {/* Desktop Header Row (Pagos) */}
-      {activeTab === 'payment_logs' && (
-        <div className="hidden lg:flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-white tracking-tight">Pagos</h1>
-            <p className="text-xs text-slate-400 mt-0.5">{paymentLogs.length} registros de pagos y renovaciones</p>
-          </div>
-        </div>
-      )}
-
-      {/* Metrics Banner - Shown on members tab */}
+      {/* PESTAÑA: SOCIOS */}
       {activeTab === 'members' && (
-        <AdminMetrics
-          totalMembers={totalMembers}
-          activeMembers={activeMembers}
-          expiringTwoDaysMembers={expiringTwoDaysMembers}
-          expiredOrUnpaidMembers={expiredOrUnpaidMembers}
-          onOpenExpiringModal={onOpenExpiringModal}
-        />
-      )}
+        <div className="space-y-4">
+          {/* AdminMetrics */}
+          <AdminMetrics
+            totalMembers={totalMembers}
+            activeMembers={activeMembers}
+            expiringTwoDaysMembers={expiringTwoDaysMembers}
+            expiredOrUnpaidMembers={expiredOrUnpaidMembers}
+            onOpenExpiringModal={onOpenExpiringModal}
+          />
 
-      {/* TAB 1: MEMBERS MANAGEMENT */}
-      {activeTab === 'members' && (
-        <div className="space-y-3 sm:space-y-4">
-          {/* Filters Bar */}
+          {/* AdminFiltersBar */}
           <AdminFiltersBar
             searchQuery={searchQuery}
             onSearchChange={setSearchQuery}
@@ -261,37 +326,23 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             expiredMembers={expiredOrUnpaidMembers}
             onExportExcel={() => exportMembersToExcel(filteredMembers)}
             exportDisabled={filteredMembers.length === 0}
+            onOpenNewMember={onOpenNewMember}
           />
 
-          {/* MOBILE VIEW: CARDS (Visible on sm and down) */}
+          {/* Mobile view: AdminMemberCards */}
           <div className="block lg:hidden space-y-3">
-            {/* Mobile Header Row */}
-            <div className="flex items-center justify-between pt-1 pb-0.5 px-0.5">
-              <h2 className="text-lg font-bold text-white tracking-tight">Socios</h2>
-              <button
-                onClick={onOpenNewMember}
-                className="text-xs font-semibold text-[#34d399] flex items-center gap-1 active:scale-95 transition-transform"
-              >
-                <UserPlus className="w-4 h-4 stroke-[2]" />
-                <span>Nuevo socio</span>
-              </button>
-            </div>
-
             {filteredMembers.length === 0 ? (
-              <div className="bg-[#0e1626] border border-slate-800 rounded-2xl p-8 text-center text-slate-400">
-                <Users className="w-8 h-8 text-slate-500 mx-auto mb-2" />
-                <p className="text-sm font-bold text-white">No se encontraron socios</p>
-                <p className="text-xs text-slate-400 mt-0.5">Prueba cambiando los filtros</p>
-              </div>
+              <Card className="p-8 text-center text-text-muted text-sm">
+                No hay socios con estos filtros.
+              </Card>
             ) : (
               paginatedMembers.map((member) => (
                 <AdminMemberCard
                   key={member.id}
                   member={member}
-                  onRenewClick={handleRenewClick}
+                  onRenewClick={(m) => setRenewingMember(m)}
                   onOpenCardModal={onOpenCardModal}
                   onOpenEditMember={onOpenEditMember}
-                  onDeleteClick={handleDeleteClick}
                 />
               ))
             )}
@@ -306,14 +357,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             />
           </div>
 
-          {/* DESKTOP VIEW: TABLE (Visible on lg and up) */}
+          {/* Desktop view: AdminMembersTable */}
           <div className="hidden lg:block space-y-3">
             <AdminMembersTable
               members={paginatedMembers}
-              onRenewClick={handleRenewClick}
+              onRenewClick={(m) => setRenewingMember(m)}
               onOpenCardModal={onOpenCardModal}
               onOpenEditMember={onOpenEditMember}
-              onDeleteClick={handleDeleteClick}
             />
 
             <Pagination
@@ -328,93 +378,123 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </div>
       )}
 
-      {/* TAB 2: ACCESS LOGS (PORTERÍA) */}
+      {/* PESTAÑA: PORTERÍA (access_logs) */}
       {activeTab === 'access_logs' && (
-        <div className="bg-[#0f172a] border border-[#34d399]/30 rounded-xl p-3.5 sm:p-5 space-y-3 sm:space-y-4">
-          <div className="flex items-center justify-between border-b border-[#34d399]/20 pb-3">
-            <div>
-              <h3 className="text-sm sm:text-base font-bold text-white flex items-center gap-2">
-                <History className="w-4 h-4 text-[#34d399]" />
-                Registro de Ingresos en Portería (Escaneos QR)
-              </h3>
-              <p className="text-xs text-slate-400 mt-0.5">
-                Historial de validaciones generadas por escáner
-              </p>
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => exportAccessLogsToExcel(accessLogs)}
-                disabled={accessLogs.length === 0}
-                className="px-2.5 py-1.5 bg-[#0f172a] hover:bg-[#34d399]/20 disabled:opacity-40 text-white text-xs font-mono font-bold rounded-lg border border-[#34d399]/40 flex items-center gap-1.5 transition-colors shadow-sm"
-                title="Descargar accesos en Excel (.xlsx)"
-              >
-                <FileSpreadsheet className="w-3.5 h-3.5 text-[#34d399]" />
-                <span>Exportar Excel</span>
-              </button>
-              <button
-                onClick={onOpenScanner}
-                className="px-3 py-1.5 bg-[#34d399] hover:bg-[#34d399]/90 text-[#0f172a] text-xs font-black rounded-lg shadow-sm"
-              >
-                Escanear
-              </button>
-            </div>
+        <div className="space-y-4">
+          {/* 3 métricas chicas (Ingresos hoy, Autorizados en status-ok, Denegados en status-danger) */}
+          <div className="grid grid-cols-3 gap-3 sm:gap-4 select-none">
+            <Card className="flex flex-col justify-between p-3.5 sm:p-[18px]">
+              <span className="text-[13px] font-semibold text-text-muted">
+                Ingresos hoy
+              </span>
+              <div className="text-[26px] sm:text-[30px] font-extrabold text-text-primary font-mono mt-2 leading-none">
+                {totalToday}
+              </div>
+            </Card>
+
+            <Card className="flex flex-col justify-between p-3.5 sm:p-[18px]">
+              <span className="text-[13px] font-semibold text-text-muted">
+                Autorizados
+              </span>
+              <div className="text-[26px] sm:text-[30px] font-extrabold text-status-ok font-mono mt-2 leading-none">
+                {authorizedToday}
+              </div>
+            </Card>
+
+            <Card className="flex flex-col justify-between p-3.5 sm:p-[18px]">
+              <span className="text-[13px] font-semibold text-text-muted">
+                Denegados
+              </span>
+              <div className="text-[26px] sm:text-[30px] font-extrabold text-status-danger font-mono mt-2 leading-none">
+                {deniedToday}
+              </div>
+            </Card>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-[#0f172a] text-slate-300 uppercase tracking-wider text-[11px] sm:text-xs font-mono border-b border-[#34d399]/30">
-                <tr>
-                  <th className="py-2.5 px-3">Fecha y Hora</th>
-                  <th className="py-2.5 px-3">Socio</th>
-                  <th className="py-2.5 px-3">DNI</th>
-                  <th className="py-2.5 px-3">Disciplina</th>
-                  <th className="py-2.5 px-3">Estado</th>
-                  <th className="py-2.5 px-3">Observación</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#34d399]/15 font-mono">
-                {accessLogs.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="py-8 text-center text-slate-400 font-sans">
-                      No hay registros de accesos todavía.
-                    </td>
-                  </tr>
-                ) : (
-                  paginatedAccessLogs.map((log) => (
-                    <tr key={log.id} className="hover:bg-[#34d399]/5 transition-colors">
-                      <td className="py-2.5 px-3 text-slate-400 text-xs">
-                        {new Date(log.timestamp).toLocaleString('es-ES', {
-                          day: '2-digit',
-                          month: '2-digit',
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        })}
-                      </td>
-                      <td className="py-2.5 px-3 font-bold text-white font-sans">{log.member_name}</td>
-                      <td className="py-2.5 px-3 text-white">{log.dni}</td>
-                      <td className="py-2.5 px-3">
-                        <span className="text-xs bg-[#0f172a] text-white px-2 py-0.5 rounded border border-[#34d399]/40">
-                          {log.disciplina}
-                        </span>
-                      </td>
-                      <td className="py-2.5 px-3">
-                        <span
-                          className={`inline-block px-2 py-0.5 rounded text-[11px] font-bold ${log.autorizado
-                            ? 'bg-[#34d399] text-[#0f172a] font-black'
-                            : 'bg-[#0f172a] text-red-400 border border-red-500/40'
-                            }`}
-                        >
-                          {log.autorizado ? 'AUTORIZADO' : 'DENEGADO'}
-                        </span>
-                      </td>
-                      <td className="py-2.5 px-3 text-slate-400 text-xs font-sans">{log.motivo}</td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+          {/* Header row with Excel export */}
+          <div className="flex items-center justify-between px-1">
+            <span className="text-xs text-text-muted font-mono">
+              {accessLogs.length} accesos registrados
+            </span>
+            <Button
+              variant="secondary"
+              icon={FileSpreadsheet}
+              onClick={() => exportAccessLogsToExcel(accessLogs)}
+              disabled={accessLogs.length === 0}
+            >
+              Excel
+            </Button>
           </div>
+
+          {/* Lista agrupada por día ("Hoy", "Ayer", fecha) con contador */}
+          {groupedAccessLogs.length === 0 ? (
+            <Card className="p-8 text-center text-text-muted text-sm">
+              No hay registros de accesos todavía.
+            </Card>
+          ) : (
+            <div className="space-y-4">
+              {groupedAccessLogs.map((group) => (
+                <div key={group.dateKey} className="space-y-2">
+                  <div className="flex items-center justify-between px-1">
+                    <h3 className="text-sm font-bold text-text-primary">
+                      {group.label}
+                    </h3>
+                    <span className="text-xs text-text-muted font-mono">
+                      {group.logs.length}{' '}
+                      {group.logs.length === 1 ? 'ingreso' : 'ingresos'}
+                    </span>
+                  </div>
+
+                  <Card className="p-0 overflow-hidden divide-y divide-border-subtle select-none">
+                    {group.logs.map((log) => (
+                      <div
+                        key={log.id}
+                        className="px-4 py-3 hover:bg-surface-200 transition-colors flex items-center justify-between gap-3"
+                      >
+                        {/* Avatar 38px + Nombre + Disciplina y motivo en text-text-muted */}
+                        <div className="flex items-center gap-3 min-w-0">
+                          <MemberAvatar
+                            name={log.member_name}
+                            className="w-[38px] h-[38px]"
+                          />
+                          <div className="min-w-0">
+                            <p className="font-bold text-text-primary text-sm truncate">
+                              {log.member_name}
+                            </p>
+                            <p className="text-xs text-text-muted truncate mt-0.5">
+                              {log.disciplina}
+                              {log.motivo ? ` · ${log.motivo}` : ''}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Hora mono y StatusBadge con icono Check "Autorizado" (ok) o X "Denegado" (danger) */}
+                        <div className="flex items-center gap-3 shrink-0">
+                          <span className="font-mono text-xs text-text-muted">
+                            {new Date(log.timestamp).toLocaleTimeString('es-AR', {
+                              hour: '2-digit',
+                              minute: '2-digit',
+                              hour12: false,
+                            })}
+                          </span>
+                          {log.autorizado ? (
+                            <StatusBadge tone="ok" icon={Check}>
+                              Autorizado
+                            </StatusBadge>
+                          ) : (
+                            <StatusBadge tone="danger" icon={X}>
+                              Denegado
+                            </StatusBadge>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </Card>
+                </div>
+              ))}
+            </div>
+          )}
+
           <Pagination
             currentPage={accessLogsPage}
             totalItems={accessLogs.length}
@@ -426,109 +506,154 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </div>
       )}
 
-      {/* TAB 3: PAYMENT LOGS */}
+      {/* PESTAÑA: PAGOS (payment_logs) */}
       {activeTab === 'payment_logs' && (
-        <div className="bg-[#0f172a] border border-[#34d399]/30 rounded-xl p-3.5 sm:p-5 space-y-3 sm:space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-[#34d399]/20 pb-3 gap-2">
-            <div>
-              <h3 className="text-sm sm:text-base font-bold text-white flex items-center gap-2">
-                <CreditCard className="w-4 h-4 text-[#34d399]" />
-                Historial de Cobros y Renovaciones
-              </h3>
-              <p className="text-xs text-slate-400 mt-0.5">
-                Registro de pagos de cuotas mensuales
-              </p>
-            </div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <button
-                type="button"
+        <div className="space-y-4">
+          {/* Card "Recaudado · últimos 30 días" con el total grande y desglose "Por método" */}
+          <Card className="p-5 sm:p-6 space-y-4 select-none">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <span className="text-[13px] font-semibold text-text-muted">
+                  Recaudado · últimos 30 días
+                </span>
+                <div className="text-[32px] sm:text-[36px] font-extrabold text-text-primary font-mono mt-1 leading-tight">
+                  {formatMoney(paymentStats.totalRecaudado)}
+                </div>
+              </div>
+
+              <Button
+                variant="secondary"
+                icon={FileSpreadsheet}
                 onClick={() => exportPaymentLogsToExcel(paymentLogs, members)}
                 disabled={paymentLogs.length === 0}
-                className="px-2.5 py-1.5 bg-[#0f172a] hover:bg-[#34d399]/20 disabled:opacity-40 text-white text-xs font-mono font-bold rounded-lg border border-[#34d399]/40 flex items-center gap-1.5 transition-colors shadow-sm"
-                title="Descargar cobros en Excel (.xlsx)"
+                className="self-start sm:self-auto"
               >
-                <FileSpreadsheet className="w-3.5 h-3.5 text-[#34d399]" />
-                <span>Exportar Excel</span>
-              </button>
-              <div className="text-xs text-[#34d399] font-bold bg-[#0f172a] border border-[#34d399]/40 px-3 py-1.5 rounded-lg font-mono">
-                Recaudación Estimada: ${estimatedMonthlyRevenue.toLocaleString('es-AR')}
+                Excel
+              </Button>
+            </div>
+
+            {/* Desglose "Por método" (Efectivo, Transferencia, Débito, Crédito, Pago QR) */}
+            <div className="pt-3 border-t border-border-subtle space-y-2.5">
+              <span className="text-xs font-semibold text-text-muted uppercase tracking-wider block">
+                Por método
+              </span>
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+                {Object.entries(paymentStats.methodTotals).map(
+                  ([method, amount]) => {
+                    const pct =
+                      paymentStats.totalRecaudado > 0
+                        ? (amount / paymentStats.totalRecaudado) * 100
+                        : 0;
+                    return (
+                      <div
+                        key={method}
+                        className="bg-surface-200/60 rounded-xl p-3 border border-border-subtle flex flex-col justify-between gap-1.5"
+                      >
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-text-secondary font-medium">
+                            {method}
+                          </span>
+                          <span className="font-mono text-text-muted text-[11px]">
+                            {Math.round(pct)}%
+                          </span>
+                        </div>
+                        <div className="text-sm font-bold font-mono text-text-primary">
+                          {formatMoney(amount)}
+                        </div>
+                        <div className="w-full h-1.5 rounded-full bg-surface-hover overflow-hidden mt-1">
+                          <div
+                            className="h-full rounded-full bg-accent transition-all"
+                            style={{ width: `${Math.min(100, pct)}%` }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  }
+                )}
               </div>
             </div>
-          </div>
+          </Card>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs font-mono">
-              <thead className="bg-[#0f172a] text-slate-300 uppercase tracking-wider text-[11px] sm:text-xs border-b border-[#34d399]/30">
-                <tr>
-                  <th className="py-2.5 px-3">Fecha</th>
-                  <th className="py-2.5 px-3">Socio</th>
-                  <th className="py-2.5 px-3">Monto</th>
-                  <th className="py-2.5 px-3">Método</th>
-                  <th className="py-2.5 px-3">Período Renovado</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#34d399]/15">
-                {paymentLogs.length === 0 ? (
-                  <tr>
-                    <td colSpan={5} className="py-8 text-center text-slate-400 font-sans">
-                      No hay registros de pagos recientes en esta sesión.
-                    </td>
-                  </tr>
-                ) : (
-                  paginatedPaymentLogs.map((pay) => {
-                    const member = members.find((m) => m.id === pay.member_id);
-                    return (
-                      <tr key={pay.id} className="hover:bg-[#34d399]/5 transition-colors">
-                        <td className="py-2.5 px-3 text-slate-300 text-xs">
-                          {formatDisplayDate(pay.fecha)}
-                        </td>
-                        <td className="py-2.5 px-3 font-bold text-white font-sans">
-                          {member ? `${member.nombre} ${member.apellido}` : 'Socio'}
-                        </td>
-                        <td className="py-2.5 px-3 font-bold text-white font-mono">
-                          ${pay.monto.toLocaleString('es-AR')}
-                        </td>
-                        <td className="py-2.5 px-3">
-                          <div className="flex flex-col gap-1 items-start">
-                            <span className="text-xs bg-[#0f172a] text-white px-2 py-0.5 rounded border border-[#34d399]/40 font-bold inline-block">
-                              {pay.metodo}
+          {/* Debajo lista "Cobros y renovaciones": avatar, nombre, fecha, período, método, monto y nota */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between px-1">
+              <h3 className="text-sm font-bold text-text-primary">
+                Cobros y renovaciones
+              </h3>
+              <span className="text-xs text-text-muted font-mono">
+                {paymentLogs.length} registros
+              </span>
+            </div>
+
+            <Card className="p-0 overflow-hidden divide-y divide-border-subtle select-none">
+              {paginatedPaymentLogs.length === 0 ? (
+                <div className="p-8 text-center text-text-muted text-sm">
+                  No hay registros de pagos recientes.
+                </div>
+              ) : (
+                paginatedPaymentLogs.map((pay) => {
+                  const member = members.find((m) => m.id === pay.member_id);
+                  const memberName = member
+                    ? `${member.nombre} ${member.apellido}`
+                    : 'Socio';
+                  const methodStr = formatPaymentMethod(pay);
+
+                  return (
+                    <div
+                      key={pay.id}
+                      className="p-3.5 sm:px-4 sm:py-3.5 hover:bg-surface-200 transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                    >
+                      {/* Avatar, nombre, fecha, período y nota */}
+                      <div className="flex items-center gap-3 min-w-0">
+                        <MemberAvatar
+                          src={member?.foto_url}
+                          name={memberName}
+                          className="w-10 h-10"
+                        />
+                        <div className="min-w-0">
+                          <p className="font-bold text-text-primary text-sm truncate">
+                            {memberName}
+                          </p>
+                          <div className="flex items-center gap-2 text-xs text-text-muted mt-0.5 flex-wrap">
+                            <span>{formatShortDate(pay.fecha)}</span>
+                            <span>·</span>
+                            <span className="font-mono text-text-secondary">
+                              {formatShortDate(pay.periodo_inicio)} →{' '}
+                              {formatShortDate(pay.periodo_fin)}
                             </span>
-                            {pay.detalles && pay.detalles.length > 1 && (
-                              <div className="flex flex-wrap gap-1 text-[11px] font-mono text-slate-300">
-                                {pay.detalles.map((d, idx) => (
-                                  <span key={idx} className="bg-[#0f172a] px-1.5 py-0.5 rounded border border-[#34d399]/30 text-white">
-                                    {d.metodo}: ${d.monto.toLocaleString('es-AR')}
-                                  </span>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        </td>
-                        <td className="py-2.5 px-3 text-slate-300 text-xs">
-                          <div>
-                            {formatDisplayDate(pay.periodo_inicio)} al {formatDisplayDate(pay.periodo_fin)}
                           </div>
                           {pay.notas && (
-                            <div className="text-[11px] text-slate-400 italic mt-0.5 font-sans">
+                            <p className="text-xs text-status-warn italic mt-1 font-sans">
                               Nota: {pay.notas}
-                            </div>
+                            </p>
                           )}
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
+                        </div>
+                      </div>
+
+                      {/* Método (pagos mixtos como "Efectivo + Transferencia") y monto font-bold */}
+                      <div className="flex items-center justify-between sm:justify-end gap-3 shrink-0 pl-13 sm:pl-0">
+                        <span className="text-xs font-medium text-text-muted bg-surface-200 px-2.5 py-1 rounded-md border border-border-subtle">
+                          {methodStr}
+                        </span>
+                        <span className="text-sm sm:text-base font-bold font-mono text-text-primary">
+                          {formatMoney(pay.monto)}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </Card>
+
+            <Pagination
+              currentPage={paymentLogsPage}
+              totalItems={paymentLogs.length}
+              pageSize={PAGE_SIZE}
+              onPageChange={setPaymentLogsPage}
+              itemLabel="pagos"
+              className="pt-2"
+            />
           </div>
-          <Pagination
-            currentPage={paymentLogsPage}
-            totalItems={paymentLogs.length}
-            pageSize={PAGE_SIZE}
-            onPageChange={setPaymentLogsPage}
-            itemLabel="pagos"
-            className="pt-2"
-          />
         </div>
       )}
 

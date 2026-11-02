@@ -1,5 +1,6 @@
 import React from 'react';
-import { Search, FileSpreadsheet } from 'lucide-react';
+import { Search, FileSpreadsheet, UserPlus } from 'lucide-react';
+import { Input, Button } from '../ui';
 
 export interface AdminFiltersBarProps {
   searchQuery: string;
@@ -15,6 +16,7 @@ export interface AdminFiltersBarProps {
   expiredMembers: number;
   onExportExcel: () => void;
   exportDisabled?: boolean;
+  onOpenNewMember?: () => void;
 }
 
 export const AdminFiltersBar: React.FC<AdminFiltersBarProps> = ({
@@ -31,154 +33,100 @@ export const AdminFiltersBar: React.FC<AdminFiltersBarProps> = ({
   expiredMembers,
   onExportExcel,
   exportDisabled,
+  onOpenNewMember,
 }) => {
+  const chips = [
+    { id: 'all' as const, label: 'Todos', count: totalMembers },
+    { id: 'activo' as const, label: 'Al día', count: activeMembers },
+    { id: 'por_vencer' as const, label: 'Por vencer', count: expiringMembers },
+    { id: 'vencido' as const, label: 'Vencidos', count: expiredMembers },
+  ];
+
   return (
-    <div className="space-y-3">
-      {/* DESKTOP BAR (Single unified horizontal bar on lg+) */}
-      <div className="hidden lg:flex items-center justify-between gap-3 bg-[#0e1626] border border-slate-800 rounded-xl px-3 py-2.5 shadow-sm">
-        {/* Left: Search input */}
-        <div className="relative">
-          <Search className="w-4 h-4 text-slate-500 absolute left-3 top-3 pointer-events-none" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => onSearchChange(e.target.value)}
-            placeholder="Buscar por nombre, DNI o teléfono..."
-            className="w-72 bg-[#090e17] border border-slate-800 rounded-lg pl-9 pr-3 py-2 text-xs text-white placeholder-slate-400 focus:outline-none focus:border-[#34d399] transition-colors"
-          />
-        </div>
+    <div className="space-y-3 select-none">
+      {/* State Chips */}
+      <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">
+        {chips.map((chip) => {
+          const isActive = statusFilter === chip.id;
+          return (
+            <button
+              key={chip.id}
+              type="button"
+              onClick={() => onStatusFilterChange(chip.id)}
+              className={`px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-colors cursor-pointer flex items-center gap-1.5 ${
+                isActive
+                  ? 'bg-accent text-ink-on-accent font-bold shadow-sm'
+                  : 'border border-border-default text-text-secondary hover:text-text-primary hover:bg-surface-hover'
+              }`}
+            >
+              <span>{chip.label}</span>
+              <span
+                className={`font-mono text-[11px] ${
+                  isActive ? 'text-ink-on-accent/80' : 'text-text-muted'
+                }`}
+              >
+                {chip.count}
+              </span>
+            </button>
+          );
+        })}
+      </div>
 
-        {/* Center: Filter Chips */}
-        <div className="flex items-center gap-1.5">
-          <button
-            onClick={() => onStatusFilterChange('all')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-              statusFilter === 'all'
-                ? 'bg-[#34d399] text-[#080c14] font-black shadow-sm'
-                : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
-            }`}
-          >
-            Todos {totalMembers}
-          </button>
-          <button
-            onClick={() => onStatusFilterChange('activo')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-              statusFilter === 'activo'
-                ? 'bg-[#34d399] text-[#080c14] font-black shadow-sm'
-                : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
-            }`}
-          >
-            Al día {activeMembers}
-          </button>
-          <button
-            onClick={() => onStatusFilterChange('por_vencer')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-              statusFilter === 'por_vencer'
-                ? 'bg-[#34d399] text-[#080c14] font-black shadow-sm'
-                : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
-            }`}
-          >
-            Por vencer {expiringMembers}
-          </button>
-          <button
-            onClick={() => onStatusFilterChange('vencido')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-              statusFilter === 'vencido'
-                ? 'bg-[#34d399] text-[#080c14] font-black shadow-sm'
-                : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
-            }`}
-          >
-            Vencidos {expiredMembers}
-          </button>
-        </div>
+      {/* Inputs & Actions */}
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 flex-1 min-w-0">
+          {/* Search Input */}
+          <div className="relative flex-1 min-w-[200px]">
+            <Search
+              size={16}
+              className="text-text-muted absolute left-3.5 top-3.5 pointer-events-none"
+            />
+            <Input
+              variant="admin"
+              value={searchQuery}
+              onChange={(e) => onSearchChange(e.target.value)}
+              placeholder="Buscar por nombre o DNI"
+              className="pl-9.5 w-full"
+            />
+          </div>
 
-        {/* Right: Disciplines dropdown & Excel export */}
-        <div className="flex items-center gap-2">
+          {/* Discipline Select */}
           <select
             value={disciplineFilter}
             onChange={(e) => onDisciplineFilterChange(e.target.value)}
-            className="bg-[#090e17] text-slate-300 text-xs border border-slate-800 rounded-lg px-3 py-2 focus:border-[#34d399] focus:outline-none cursor-pointer"
+            className="h-11 bg-surface-sunken border border-border-default text-text-primary text-xs rounded-xl px-3.5 focus:border-accent focus:outline-none transition-colors cursor-pointer shrink-0"
           >
             <option value="all">Todas las disciplinas</option>
             {disciplinesList.map((d) => (
-              <option key={d} value={d} className="bg-[#090e17] text-white">
+              <option key={d} value={d} className="bg-surface-100 text-text-primary">
                 {d}
               </option>
             ))}
           </select>
+        </div>
 
-          <button
-            type="button"
+        {/* Buttons */}
+        <div className="flex items-center gap-2 shrink-0">
+          <Button
+            variant="secondary"
+            icon={FileSpreadsheet}
             onClick={onExportExcel}
             disabled={exportDisabled}
-            className="px-3 py-2 bg-[#090e17] hover:bg-slate-800/70 disabled:opacity-40 text-slate-300 hover:text-white text-xs font-semibold rounded-lg border border-slate-800 flex items-center gap-1.5 transition-colors cursor-pointer shadow-sm"
-            title="Descargar socios en Excel (.xlsx)"
           >
-            <FileSpreadsheet className="w-3.5 h-3.5 text-[#34d399]" />
-            <span>Excel</span>
-          </button>
-        </div>
-      </div>
+            Excel
+          </Button>
 
-      {/* MOBILE BAR (Stacked layout on < lg) */}
-      <div className="lg:hidden space-y-2.5">
-        {/* Search input with rounded container */}
-        <div className="relative">
-          <Search className="w-4 h-4 text-slate-500 absolute left-3.5 top-3.5 pointer-events-none" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => onSearchChange(e.target.value)}
-            placeholder="Buscar nombre, DNI o teléfono"
-            className="w-full bg-[#0e1626] border border-slate-800 rounded-xl pl-10 pr-3 py-2.5 text-sm text-white placeholder-slate-400 focus:outline-none focus:border-[#34d399] transition-colors shadow-sm"
-          />
-        </div>
-
-        {/* Filter chips (Horizontal scroll) */}
-        <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">
-          <button
-            onClick={() => onStatusFilterChange('all')}
-            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${
-              statusFilter === 'all'
-                ? 'bg-[#34d399] text-[#080c14] font-black shadow-sm'
-                : 'bg-[#0e1626] border border-slate-800 text-slate-300 hover:text-white'
-            }`}
-          >
-            Todos {totalMembers}
-          </button>
-          <button
-            onClick={() => onStatusFilterChange('activo')}
-            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${
-              statusFilter === 'activo'
-                ? 'bg-[#34d399] text-[#080c14] font-black shadow-sm'
-                : 'bg-[#0e1626] border border-slate-800 text-slate-300 hover:text-white'
-            }`}
-          >
-            Al día {activeMembers}
-          </button>
-          <button
-            onClick={() => onStatusFilterChange('por_vencer')}
-            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${
-              statusFilter === 'por_vencer'
-                ? 'bg-[#34d399] text-[#080c14] font-black shadow-sm'
-                : 'bg-[#0e1626] border border-slate-800 text-slate-300 hover:text-white'
-            }`}
-          >
-            Por vencer {expiringMembers}
-          </button>
-          <button
-            onClick={() => onStatusFilterChange('vencido')}
-            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${
-              statusFilter === 'vencido'
-                ? 'bg-[#34d399] text-[#080c14] font-black shadow-sm'
-                : 'bg-[#0e1626] border border-slate-800 text-slate-300 hover:text-white'
-            }`}
-          >
-            Vencidos {expiredMembers}
-          </button>
+          {onOpenNewMember && (
+            <Button
+              variant="primary"
+              icon={UserPlus}
+              onClick={onOpenNewMember}
+            >
+              Nuevo socio
+            </Button>
+          )}
         </div>
       </div>
     </div>
   );
 };
-
