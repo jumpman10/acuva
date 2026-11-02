@@ -1,29 +1,36 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Member, DisciplineItem, PaymentMethod, PaymentMethodDetail, RenewMemberOptions } from '../types';
-import { calculateNextExpiration, formatDateISO, formatDisplayDate, getDaysRemaining } from '../lib/dateUtils';
 import {
-  X,
-  Calendar,
+  Member,
+  DisciplineItem,
+  PaymentMethod,
+  PaymentMethodDetail,
+  RenewMemberOptions,
+} from '../types';
+import {
+  calculateNextExpiration,
+  formatDateISO,
+} from '../lib/dateUtils';
+import { formatMoney } from '../lib/status';
+import { playSuccessChime } from '../lib/sound';
+import { Drawer, Button, Field, Input } from './ui';
+import {
+  Banknote,
+  Smartphone,
   CreditCard,
-  Dumbbell,
-  Check,
-  RefreshCw,
-  Clock,
-  ArrowRight,
-  DollarSign,
-  Lock,
+  WalletCards,
+  QrCode,
   Split,
   AlertCircle,
-  FileText,
-  BadgeAlert
+  BadgeAlert,
 } from 'lucide-react';
 
-interface RenewMemberModalProps {
+export interface RenewMemberModalProps {
   isOpen: boolean;
   onClose: () => void;
   member: Member | null;
   disciplines: DisciplineItem[];
   onConfirmRenew: (memberId: string, options: RenewMemberOptions) => Promise<void>;
+  onBack?: () => void;
 }
 
 type SinglePaymentMethod =
@@ -33,12 +40,12 @@ type SinglePaymentMethod =
   | 'Tarjeta de crédito'
   | 'Pago con QR';
 
-const PAYMENT_METHODS: { id: SinglePaymentMethod; label: string }[] = [
-  { id: 'Efectivo', label: 'Efectivo' },
-  { id: 'Transferencia', label: 'Transferencia' },
-  { id: 'Tarjeta de débito', label: 'Débito' },
-  { id: 'Tarjeta de crédito', label: 'Crédito' },
-  { id: 'Pago con QR', label: 'Pago QR' },
+const PAYMENT_METHODS_OPTIONS = [
+  { id: 'Efectivo' as const, label: 'Efectivo', icon: Banknote },
+  { id: 'Transferencia' as const, label: 'Transferencia', icon: Smartphone },
+  { id: 'Tarjeta de débito' as const, label: 'Débito', icon: CreditCard },
+  { id: 'Tarjeta de crédito' as const, label: 'Crédito', icon: WalletCards },
+  { id: 'Pago con QR' as const, label: 'Pago QR', icon: QrCode },
 ];
 
 export const RenewMemberModal: React.FC<RenewMemberModalProps> = ({
@@ -47,6 +54,7 @@ export const RenewMemberModal: React.FC<RenewMemberModalProps> = ({
   member,
   disciplines,
   onConfirmRenew,
+  onBack,
 }) => {
   const [modoCobro, setModoCobro] = useState<'renovacion' | 'saldar_deuda'>('renovacion');
   const [fechaRenovacion, setFechaRenovacion] = useState(formatDateISO(new Date()));
@@ -70,14 +78,13 @@ export const RenewMemberModal: React.FC<RenewMemberModalProps> = ({
 
   const [notas, setNotas] = useState<string>('');
   const [loading, setLoading] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
 
   // Initialize modal state when opened
   useEffect(() => {
     if (member && isOpen) {
       const today = formatDateISO(new Date());
       setFechaRenovacion(today);
-
-      const hasDebt = (member.saldo_pendiente || 0) > 0;
       setModoCobro('renovacion');
 
       const currentDisc = member.disciplina || (disciplines[0]?.nombre ?? 'Musculación');
@@ -101,11 +108,13 @@ export const RenewMemberModal: React.FC<RenewMemberModalProps> = ({
       setMontoCredito(0);
       setMontoQr(0);
       setNotas('');
+      setFormError(null);
 
       // Calculate expiration
-      const baseDate = member.fecha_vencimiento && member.fecha_vencimiento >= today
-        ? member.fecha_vencimiento
-        : today;
+      const baseDate =
+        member.fecha_vencimiento && member.fecha_vencimiento >= today
+          ? member.fecha_vencimiento
+          : today;
       setFechaVencimiento(calculateNextExpiration(baseDate));
     }
   }, [member, isOpen, disciplines]);
@@ -113,6 +122,7 @@ export const RenewMemberModal: React.FC<RenewMemberModalProps> = ({
   // When switching modes (Renovación vs Saldar Deuda)
   const handleModoCobroChange = (nuevoModo: 'renovacion' | 'saldar_deuda') => {
     setModoCobro(nuevoModo);
+    setFormError(null);
     if (nuevoModo === 'saldar_deuda') {
       const deuda = member?.saldo_pendiente || 0;
       setMontoAbonado(deuda);
@@ -135,9 +145,10 @@ export const RenewMemberModal: React.FC<RenewMemberModalProps> = ({
   const handleRenovacionChange = (newRenovacionDate: string) => {
     setFechaRenovacion(newRenovacionDate);
     if (!member) return;
-    const baseDate = member.fecha_vencimiento && member.fecha_vencimiento >= newRenovacionDate
-      ? member.fecha_vencimiento
-      : newRenovacionDate;
+    const baseDate =
+      member.fecha_vencimiento && member.fecha_vencimiento >= newRenovacionDate
+        ? member.fecha_vencimiento
+        : newRenovacionDate;
     setFechaVencimiento(calculateNextExpiration(baseDate));
   };
 
@@ -161,8 +172,8 @@ export const RenewMemberModal: React.FC<RenewMemberModalProps> = ({
   // Switch to/from mixed payment
   const handleToggleMixto = (activarMixto: boolean) => {
     setEsMixto(activarMixto);
+    setFormError(null);
     if (activarMixto) {
-      // Split in half or allocate to cash first
       const mitad = Math.floor(montoAbonado / 2);
       setMontoEfectivo(mitad);
       setMontoTransferencia(montoAbonado - mitad);
@@ -192,7 +203,6 @@ export const RenewMemberModal: React.FC<RenewMemberModalProps> = ({
       const deudaActual = member?.saldo_pendiente || 0;
       return Math.max(0, deudaActual - montoAbonado);
     }
-    // Para renovación: si el socio abona menos de la tarifa
     return Math.max(0, precioDisciplina - montoAbonado);
   }, [modoCobro, member?.saldo_pendiente, precioDisciplina, montoAbonado]);
 
@@ -216,20 +226,22 @@ export const RenewMemberModal: React.FC<RenewMemberModalProps> = ({
     }
   };
 
-  if (!isOpen || !member) return null;
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!member) return;
     if (montoAbonado < 0) {
-      alert('El monto a abonar no puede ser negativo');
+      setFormError('El monto a abonar no puede ser negativo.');
       return;
     }
     if (esMixto && !desgloseValido) {
-      alert(`La suma del desglose ($${sumaDesglose.toLocaleString('es-AR')}) no coincide con el total a cobrar ($${montoAbonado.toLocaleString('es-AR')}).`);
+      setFormError(
+        `La suma del desglose (${formatMoney(sumaDesglose)}) no coincide con el total a cobrar (${formatMoney(montoAbonado)}).`
+      );
       return;
     }
 
     setLoading(true);
+    setFormError(null);
     try {
       const detallesList: PaymentMethodDetail[] = [];
       let metodoFinal: PaymentMethod | string = metodoSimple;
@@ -241,7 +253,7 @@ export const RenewMemberModal: React.FC<RenewMemberModalProps> = ({
         if (montoCredito > 0) detallesList.push({ metodo: 'Tarjeta de crédito', monto: montoCredito });
         if (montoQr > 0) detallesList.push({ metodo: 'Pago con QR', monto: montoQr });
 
-        const nombresMetodos = detallesList.map(d => d.metodo).join(' + ');
+        const nombresMetodos = detallesList.map((d) => d.metodo).join(' + ');
         metodoFinal = detallesList.length > 1 ? `Mixto (${nombresMetodos})` : (detallesList[0]?.metodo || 'Mixto');
       } else {
         detallesList.push({ metodo: metodoSimple, monto: montoAbonado });
@@ -259,548 +271,369 @@ export const RenewMemberModal: React.FC<RenewMemberModalProps> = ({
         notas: notas.trim() || undefined,
       });
 
+      playSuccessChime();
       onClose();
     } catch (err) {
       console.error('Error al registrar pago/renovación:', err);
-      alert('Ocurrió un error al registrar el pago');
+      setFormError('Ocurrió un error al registrar el pago. Por favor reintentá.');
     } finally {
       setLoading(false);
     }
   };
 
-  const daysRemaining = getDaysRemaining(member.fecha_vencimiento);
-  const isExpired = daysRemaining < 0;
-  const isPaidThroughFuture = member.fecha_vencimiento && member.fecha_vencimiento >= fechaRenovacion;
+  if (!isOpen || !member) return null;
+
+  const isPaidThroughFuture =
+    member.fecha_vencimiento && member.fecha_vencimiento >= fechaRenovacion;
   const tieneDeudaPrevia = (member.saldo_pendiente || 0) > 0;
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-[#0f172a]/80 backdrop-blur-sm">
-      <div className="min-h-full flex items-center justify-center p-2.5 sm:p-4">
-        <div className="bg-[#0f172a] border border-[#34d399] rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl relative my-auto flex flex-col max-h-[calc(100dvh-1.5rem)] sm:max-h-[92vh]">
+    <Drawer
+      open={isOpen}
+      onClose={onClose}
+      onBack={onBack}
+      title={modoCobro === 'saldar_deuda' ? 'Cobro de saldo' : 'Cobro y renovación'}
+      subtitle={`${member.nombre} ${member.apellido} · ${member.dni}`}
+      footer={
+        <div className="space-y-2">
+          <Button
+            type="submit"
+            variant="primary"
+            size="lg"
+            loading={loading}
+            disabled={loading || (esMixto && !desgloseValido)}
+            className="w-full"
+            form="renew-form"
+          >
+            {modoCobro === 'saldar_deuda' ? 'Cobrar saldo ahora' : 'Cobrar y renovar ahora'}
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            size="md"
+            disabled={loading}
+            onClick={onClose}
+            className="w-full"
+          >
+            Cancelar
+          </Button>
+        </div>
+      }
+    >
+      <form id="renew-form" onSubmit={handleSubmit} className="space-y-4">
+        {/* Error message */}
+        {formError && (
+          <div className="bg-status-danger-soft border border-status-danger-border text-status-danger rounded-xl p-3 text-xs flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span>{formError}</span>
+          </div>
+        )}
 
-          {/* Header */}
-          <div className="flex items-center justify-between p-4 sm:p-5 border-b border-[#34d399]/20 bg-[#0f172a] shrink-0">
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl bg-[#34d399] text-[#0f172a] flex items-center justify-center font-bold shadow-sm">
-                <RefreshCw className="w-4 h-4" />
-              </div>
-              <div>
-                <h3 className="font-black text-base text-white tracking-wide uppercase">
-                  {modoCobro === 'saldar_deuda' ? 'Cobro de Saldo Deudor' : 'Cobro & Renovación'}
-                </h3>
-                <p className="text-xs text-slate-300">
-                  {member.nombre} {member.apellido} • DNI <span className="font-mono text-white">{member.dni}</span>
-                </p>
+        {/* Si tiene saldo: aviso warn "Saldo deudor pendiente $X" */}
+        {tieneDeudaPrevia && (
+          <div className="bg-status-warn-soft border border-status-warn-border text-status-warn rounded-xl p-3.5 space-y-2.5 text-xs">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 font-bold">
+                <BadgeAlert className="w-4 h-4 shrink-0" />
+                <span>Saldo deudor pendiente {formatMoney(member.saldo_pendiente || 0)}</span>
               </div>
             </div>
+            <div className="grid grid-cols-2 gap-2 pt-0.5">
+              <button
+                type="button"
+                onClick={() => handleModoCobroChange('renovacion')}
+                className={`py-2 px-2.5 rounded-xl text-xs font-bold transition-all border text-center cursor-pointer ${
+                  modoCobro === 'renovacion'
+                    ? 'bg-accent text-ink-on-accent border-accent'
+                    : 'bg-surface-sunken text-text-secondary border-border-default hover:text-text-primary'
+                }`}
+              >
+                Renovar nuevo mes
+              </button>
+              <button
+                type="button"
+                onClick={() => handleModoCobroChange('saldar_deuda')}
+                className={`py-2 px-2.5 rounded-xl text-xs font-bold transition-all border text-center cursor-pointer ${
+                  modoCobro === 'saldar_deuda'
+                    ? 'bg-status-warn text-ink-on-accent border-status-warn'
+                    : 'bg-surface-sunken text-status-warn border-status-warn-border hover:bg-status-warn-soft'
+                }`}
+              >
+                Saldar deuda ({formatMoney(member.saldo_pendiente || 0)})
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Disciplina (select) */}
+        {modoCobro === 'renovacion' && (
+          <Field label="Disciplina">
+            <div className="relative">
+              <select
+                value={disciplina}
+                onChange={(e) => handleDisciplineChange(e.target.value)}
+                className="w-full h-11 bg-surface-sunken border border-border-default rounded-xl px-3.5 text-sm text-text-primary focus:border-accent focus:outline-none appearance-none cursor-pointer transition-colors"
+              >
+                {disciplina && !disciplines.some((d) => d.nombre === disciplina) && (
+                  <option value={disciplina} className="bg-surface-100 text-text-primary">
+                    {disciplina}
+                  </option>
+                )}
+                {disciplines.map((d) => (
+                  <option key={d.id} value={d.nombre} className="bg-surface-100 text-text-primary">
+                    {d.nombre} — {formatMoney(d.precio)}
+                  </option>
+                ))}
+              </select>
+              <div className="absolute inset-y-0 right-0 flex items-center pr-3.5 pointer-events-none text-text-muted text-xs">
+                ▼
+              </div>
+            </div>
+          </Field>
+        )}
+
+        {/* "Monto a cobrar hoy" (Input admin grande, text-2xl font-extrabold) */}
+        <Field
+          label="Monto a cobrar hoy"
+          hint={
+            modoCobro === 'renovacion'
+              ? `Cuota lista: ${formatMoney(precioDisciplina)}`
+              : `Deuda: ${formatMoney(member.saldo_pendiente || 0)}`
+          }
+        >
+          <div className="relative">
+            <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-muted font-bold text-xl select-none">
+              $
+            </span>
+            <Input
+              variant="admin"
+              type="number"
+              min="0"
+              step="100"
+              required
+              value={montoAbonado === 0 ? '' : montoAbonado}
+              onChange={(e) => {
+                const val = Number(e.target.value) || 0;
+                setMontoAbonado(val);
+                if (!esMixto) {
+                  setMontoEfectivo(val);
+                }
+              }}
+              className="pl-8 text-2xl font-extrabold font-mono h-14"
+              placeholder="0"
+            />
+          </div>
+        </Field>
+
+        {/* Si el monto es menor a la cuota: aviso warn "Cobro parcial: quedará un saldo de $X" */}
+        {esPagoParcial && (
+          <div className="bg-status-warn-soft border border-status-warn-border text-status-warn rounded-xl p-3 flex items-start gap-2.5 text-xs">
+            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+            <div>
+              <span className="font-bold block">
+                Cobro parcial: quedará un saldo de {formatMoney(saldoPendienteCalculado)}
+              </span>
+              <span className="text-text-secondary text-[11px] mt-0.5 block">
+                El socio abonará menos que la cuota oficial ({formatMoney(precioDisciplina)}).
+              </span>
+            </div>
+          </div>
+        )}
+
+        {modoCobro === 'saldar_deuda' && montoAbonado < (member.saldo_pendiente || 0) && (
+          <div className="bg-status-warn-soft border border-status-warn-border text-status-warn rounded-xl p-3 flex items-start gap-2.5 text-xs">
+            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+            <span>
+              Cobro parcial: quedará un saldo de {formatMoney(saldoPendienteCalculado)}
+            </span>
+          </div>
+        )}
+
+        {/* Método de pago */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <label className="text-[13px] font-bold text-text-secondary">
+              Método de pago
+            </label>
+            {/* Toggle "Dividir pago" */}
             <button
-              onClick={onClose}
-              disabled={loading}
-              className="text-slate-300 hover:text-white p-1 rounded-lg hover:bg-[#34d399]/20 transition-colors"
+              type="button"
+              onClick={() => handleToggleMixto(!esMixto)}
+              className={`text-xs font-semibold px-2.5 py-1 rounded-lg border transition-colors flex items-center gap-1.5 cursor-pointer ${
+                esMixto
+                  ? 'border-accent bg-accent-soft text-accent'
+                  : 'border-border-default bg-surface-sunken text-text-muted hover:text-text-secondary'
+              }`}
             >
-              <X className="w-5 h-5" />
+              <Split className="w-3.5 h-3.5" />
+              <span>Dividir pago</span>
             </button>
           </div>
 
-          {/* Form Body */}
-          <form onSubmit={handleSubmit} className="p-4 sm:p-5 space-y-4 overflow-y-auto">
-
-            {/* Si el socio tiene deuda previa, selector de operación */}
-            {tieneDeudaPrevia && (
-              <div className="bg-[#0f172a] border border-amber-500/40 rounded-xl p-3 space-y-2">
-                <div className="flex items-center justify-between text-xs">
-                  <div className="flex items-center gap-2 text-amber-300 font-bold">
-                    <BadgeAlert className="w-4 h-4 shrink-0" />
-                    <span>Socio con saldo deudor pendiente</span>
-                  </div>
-                  <span className="font-mono font-black text-amber-200 text-sm">
-                    ${(member.saldo_pendiente || 0).toLocaleString('es-AR')}
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-2 gap-1.5 pt-1">
+          {/* Grilla de 5 opciones con ícono */}
+          {!esMixto ? (
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              {PAYMENT_METHODS_OPTIONS.map((pm) => {
+                const isSelected = metodoSimple === pm.id;
+                const Icon = pm.icon;
+                return (
                   <button
+                    key={pm.id}
                     type="button"
-                    onClick={() => handleModoCobroChange('renovacion')}
-                    className={`py-1.5 px-2 rounded-lg text-xs font-bold transition-all border text-center ${modoCobro === 'renovacion'
-                      ? 'bg-[#34d399] text-[#0f172a] border-[#34d399] font-black shadow-sm'
-                      : 'bg-[#0f172a] text-slate-300 border-[#34d399]/30 hover:text-white'
-                      }`}
+                    onClick={() => setMetodoSimple(pm.id)}
+                    className={`p-3 rounded-xl border text-xs font-bold transition-all flex flex-col items-center justify-center gap-1.5 cursor-pointer ${
+                      isSelected
+                        ? 'border-accent bg-accent-soft text-accent'
+                        : 'border-border-default bg-surface-sunken text-text-secondary hover:border-border-default/80 hover:text-text-primary'
+                    }`}
                   >
-                    Renovar nuevo mes
+                    <Icon className="w-5 h-5 shrink-0" strokeWidth={2} />
+                    <span>{pm.label}</span>
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => handleModoCobroChange('saldar_deuda')}
-                    className={`py-1.5 px-2 rounded-lg text-xs font-bold transition-all border text-center ${modoCobro === 'saldar_deuda'
-                      ? 'bg-amber-400 text-slate-900 border-amber-300 font-black shadow-sm'
-                      : 'bg-[#0f172a] text-amber-300/80 border-amber-900/50 hover:text-amber-200'
-                      }`}
-                  >
-                    Saldar deuda ($ {member.saldo_pendiente?.toLocaleString('es-AR')})
-                  </button>
-                </div>
+                );
+              })}
+            </div>
+          ) : (
+            /* Montos por método (lógica de detalles existente) */
+            <div className="bg-surface-sunken border border-border-default rounded-xl p-3.5 space-y-3">
+              <div className="text-[11px] text-text-muted flex items-center justify-between pb-1 border-b border-border-subtle">
+                <span>Indicá cuánto abona con cada método:</span>
+                <span className="font-mono text-text-primary">
+                  Total: <strong>{formatMoney(montoAbonado)}</strong>
+                </span>
               </div>
-            )}
 
-            {/* Current Status Box (Solo si no está saldando deuda directa) */}
-            {modoCobro === 'renovacion' && (
-              <div className="bg-[#0f172a] border border-[#34d399]/30 rounded-xl p-3 flex items-center justify-between gap-3 text-xs">
-                <div className="flex items-center gap-2">
-                  <Clock className="w-4 h-4 text-[#34d399] shrink-0" />
-                  <div>
-                    <span className="text-slate-300 block text-[11px]">Vencimiento actual</span>
-                    <span className="font-bold text-white">
-                      {member.fecha_vencimiento ? formatDisplayDate(member.fecha_vencimiento) : 'Sin registro'}
-                    </span>
+              {[
+                {
+                  label: 'Efectivo',
+                  icon: Banknote,
+                  value: montoEfectivo,
+                  setter: setMontoEfectivo,
+                  id: 'Efectivo' as const,
+                },
+                {
+                  label: 'Transferencia',
+                  icon: Smartphone,
+                  value: montoTransferencia,
+                  setter: setMontoTransferencia,
+                  id: 'Transferencia' as const,
+                },
+                {
+                  label: 'Débito',
+                  icon: CreditCard,
+                  value: montoDebito,
+                  setter: setMontoDebito,
+                  id: 'Tarjeta de débito' as const,
+                },
+                {
+                  label: 'Crédito',
+                  icon: WalletCards,
+                  value: montoCredito,
+                  setter: setMontoCredito,
+                  id: 'Tarjeta de crédito' as const,
+                },
+                {
+                  label: 'Pago QR',
+                  icon: QrCode,
+                  value: montoQr,
+                  setter: setMontoQr,
+                  id: 'Pago con QR' as const,
+                },
+              ].map((item) => (
+                <div key={item.id} className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 text-xs font-bold text-text-secondary w-28 shrink-0">
+                    <item.icon className="w-4 h-4 text-text-muted shrink-0" />
+                    <span className="truncate">{item.label}</span>
                   </div>
-                </div>
-                <div className="text-right">
-                  <span
-                    className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${isExpired
-                      ? 'bg-[#0f172a] text-red-400 border border-red-500/40'
-                      : daysRemaining <= 2
-                        ? 'bg-[#0f172a] text-white border border-[#34d399]/60'
-                        : 'bg-[#34d399] text-[#0f172a]'
-                      }`}
-                  >
-                    {isExpired
-                      ? `Vencido hace ${Math.abs(daysRemaining)}d`
-                      : daysRemaining === 0
-                        ? 'Vence hoy'
-                        : `${daysRemaining} días restantes`}
-                  </span>
-                </div>
-              </div>
-            )}
-
-            {/* Modo Renovación: Fechas & Disciplina */}
-            {modoCobro === 'renovacion' && (
-              <>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-bold text-white uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
-                      <Calendar className="w-3.5 h-3.5 text-[#34d399]" />
-                      Fecha de Cobro
-                    </label>
-                    <input
-                      type="date"
-                      required
-                      value={fechaRenovacion}
-                      onChange={(e) => handleRenovacionChange(e.target.value)}
-                      className="w-full bg-[#0f172a] border border-[#34d399]/50 rounded-lg px-3 py-2 text-sm text-white font-mono focus:border-[#34d399] focus:outline-none transition-colors"
+                  <div className="flex items-center gap-1.5 flex-1">
+                    <Input
+                      variant="admin"
+                      mono
+                      type="number"
+                      min="0"
+                      step="100"
+                      value={item.value || ''}
+                      onChange={(e) => item.setter(Number(e.target.value) || 0)}
+                      placeholder="0"
+                      className="text-right h-9 text-xs"
                     />
-                  </div>
-
-                  <div>
-                    <div className="flex items-center justify-between mb-1.5">
-                      <label className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
-                        <ArrowRight className="w-3.5 h-3.5 text-[#34d399]" />
-                        Nuevo Vencimiento
-                      </label>
-                      <span className="text-[10px] text-slate-400 font-mono">(Automático)</span>
-                    </div>
-                    <div className="relative">
-                      <input
-                        type="date"
-                        readOnly
-                        tabIndex={-1}
-                        value={fechaVencimiento}
-                        className="w-full bg-[#0f172a] border border-[#34d399]/30 rounded-lg px-3 py-2 text-sm text-slate-300 font-mono cursor-not-allowed select-none focus:outline-none"
-                      />
-                      <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-slate-400">
-                        <Lock className="w-3.5 h-3.5" />
-                      </div>
-                    </div>
-                    <span className="text-[10px] text-slate-400 mt-1 block truncate">
-                      {isPaidThroughFuture
-                        ? 'Acumulado al vencimiento actual (+1 mes)'
-                        : '1 mes desde fecha de cobro'}
-                    </span>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-white uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
-                    <Dumbbell className="w-3.5 h-3.5 text-[#34d399]" />
-                    Disciplina & Arancel Oficial
-                  </label>
-                  <div className="relative">
-                    <select
-                      value={disciplina}
-                      onChange={(e) => handleDisciplineChange(e.target.value)}
-                      className="w-full bg-[#0f172a] border border-[#34d399]/50 rounded-lg px-3 py-2 text-sm text-white focus:border-[#34d399] focus:outline-none appearance-none transition-colors cursor-pointer"
-                    >
-                      {disciplina && !disciplines.some((d) => d.nombre === disciplina) && (
-                        <option value={disciplina} className="bg-[#0f172a] text-white">{disciplina}</option>
-                      )}
-                      {disciplines.map((d) => (
-                        <option key={d.id} value={d.nombre} className="bg-[#0f172a] text-white">
-                          {d.nombre} — ${d.precio.toLocaleString('es-AR')}
-                        </option>
-                      ))}
-                    </select>
-                    <div className="absolute inset-y-0 right-0 flex items-center px-3 pointer-events-none text-[#34d399]">
-                      ▼
-                    </div>
-                  </div>
-                </div>
-              </>
-            )}
-
-            {/* MONTO A COBRAR / ABONAR HOY */}
-            <div className="bg-[#0f172a] border border-[#34d399]/40 rounded-xl p-3.5 space-y-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <label className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
-                    <DollarSign className="w-4 h-4 text-[#34d399]" />
-                    Monto a Cobrar Hoy ($)
-                  </label>
-                  <span className="text-[11px] text-slate-400 block">
-                    {modoCobro === 'renovacion'
-                      ? `Arancel de lista: $${precioDisciplina.toLocaleString('es-AR')}`
-                      : `Deuda pendiente: $${(member.saldo_pendiente || 0).toLocaleString('es-AR')}`}
-                  </span>
-                </div>
-                <div className="w-40">
-                  <input
-                    type="number"
-                    min="0"
-                    step="100"
-                    required
-                    value={montoAbonado}
-                    onChange={(e) => {
-                      const val = Number(e.target.value) || 0;
-                      setMontoAbonado(val);
-                      if (!esMixto) {
-                        setMontoEfectivo(val);
-                      }
-                    }}
-                    className="w-full bg-[#0f172a] border border-[#34d399]/50 rounded-lg px-3 py-1.5 text-base text-right text-white font-mono font-bold focus:border-[#34d399] focus:outline-none"
-                    placeholder="0"
-                  />
-                </div>
-              </div>
-
-              {/* Alerta de pago parcial / saldo pendiente */}
-              {esPagoParcial && (
-                <div className="bg-amber-950/50 border border-amber-600/50 rounded-lg p-2.5 flex items-start gap-2 text-xs text-amber-200">
-                  <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-                  <div>
-                    <span className="font-bold block">Cobro Parcial Detectado</span>
-                    <span>
-                      El socio abona menos que el arancel total. Se registrará una{' '}
-                      <strong>deuda pendiente de ${saldoPendienteCalculado.toLocaleString('es-AR')}</strong>.
-                    </span>
-                  </div>
-                </div>
-              )}
-
-              {modoCobro === 'saldar_deuda' && montoAbonado < (member.saldo_pendiente || 0) && (
-                <div className="bg-[#0f172a] border border-[#34d399]/30 rounded-lg p-2.5 text-xs text-slate-300 flex items-center justify-between">
-                  <span>Pago a cuenta de deuda:</span>
-                  <span className="font-mono text-amber-300 font-bold">
-                    Quedarán debiendo ${saldoPendienteCalculado.toLocaleString('es-AR')}
-                  </span>
-                </div>
-              )}
-            </div>
-
-            {/* SELECTOR DE MODALIDAD: ÚNICO VS MIXTO */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <label className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
-                  <CreditCard className="w-3.5 h-3.5 text-[#34d399]" />
-                  Método de Pago
-                </label>
-
-                {/* Switch Único / Mixto */}
-                <div className="flex items-center bg-[#0f172a] p-0.5 rounded-lg border border-[#34d399]/40 text-[11px]">
-                  <button
-                    type="button"
-                    onClick={() => handleToggleMixto(false)}
-                    className={`px-2.5 py-1 rounded-md font-bold transition-all ${!esMixto
-                      ? 'bg-[#34d399] text-[#0f172a] shadow-sm font-black'
-                      : 'text-slate-300 hover:text-white'
-                      }`}
-                  >
-                    Método Único
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleToggleMixto(true)}
-                    className={`px-2.5 py-1 rounded-md font-bold flex items-center gap-1 transition-all ${esMixto
-                      ? 'bg-[#34d399] text-[#0f172a] shadow-sm font-black'
-                      : 'text-slate-300 hover:text-white'
-                      }`}
-                  >
-                    <Split className="w-3 h-3" />
-                    Combinado / Mixto
-                  </button>
-                </div>
-              </div>
-
-              {/* OPCIÓN A: MÉTODO ÚNICO */}
-              {!esMixto && (
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
-                  {PAYMENT_METHODS.map((pm) => {
-                    const isSelected = metodoSimple === pm.id;
-                    return (
-                      <button
-                        key={pm.id}
-                        type="button"
-                        onClick={() => setMetodoSimple(pm.id)}
-                        className={`py-2 px-1 rounded-lg text-xs font-bold transition-all border text-center ${isSelected
-                          ? 'bg-[#34d399] text-[#0f172a] border-[#34d399] font-black shadow-sm'
-                          : 'bg-[#0f172a] text-slate-300 hover:text-white border-[#34d399]/30 hover:border-[#34d399]'
-                          }`}
+                    {diferenciaDesglose !== 0 && (
+                      <Button
+                        variant="secondary"
+                        size="md"
+                        onClick={() => autoCompletarResto(item.id)}
+                        className="h-9 px-2 text-[11px] font-mono whitespace-nowrap shrink-0"
+                        title="Asignar saldo restante"
                       >
-                        {pm.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-
-              {/* OPCIÓN B: MÉTODO COMBINADO / MIXTO (DESGLOSE MULTI-MÉTODO) */}
-              {esMixto && (
-                <div className="bg-[#0f172a] border border-[#34d399]/40 rounded-xl p-3.5 space-y-3">
-                  <div className="text-[11px] text-slate-300 flex items-center justify-between pb-1 border-b border-[#34d399]/20">
-                    <span>Indica cuánto abona con cada método:</span>
-                    <span className="font-mono text-white">
-                      Objetivo: <strong>${montoAbonado.toLocaleString('es-AR')}</strong>
-                    </span>
-                  </div>
-
-                  {/* Efectivo */}
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs font-bold text-white w-28">💵 Efectivo</span>
-                    <div className="flex items-center gap-1 flex-1">
-                      <input
-                        type="number"
-                        min="0"
-                        step="100"
-                        value={montoEfectivo || ''}
-                        onChange={(e) => setMontoEfectivo(Number(e.target.value) || 0)}
-                        placeholder="0"
-                        className="w-full bg-[#0f172a] border border-[#34d399]/50 rounded-lg px-3 py-1.5 text-xs text-white font-mono focus:border-[#34d399] focus:outline-none text-right"
-                      />
-                      {diferenciaDesglose !== 0 && (
-                        <button
-                          type="button"
-                          onClick={() => autoCompletarResto('Efectivo')}
-                          title="Asignar el saldo restante a Efectivo"
-                          className="px-2 py-1.5 bg-[#0f172a] border border-[#34d399]/40 hover:bg-[#34d399]/20 text-white rounded text-[10px] font-mono whitespace-nowrap"
-                        >
-                          Resto
-                        </button>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Transferencia */}
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs font-bold text-white w-28">📱 Transferencia</span>
-                    <div className="flex items-center gap-1 flex-1">
-                      <input
-                        type="number"
-                        min="0"
-                        step="100"
-                        value={montoTransferencia || ''}
-                        onChange={(e) => setMontoTransferencia(Number(e.target.value) || 0)}
-                        placeholder="0"
-                        className="w-full bg-[#0f172a] border border-[#34d399]/50 rounded-lg px-3 py-1.5 text-xs text-white font-mono focus:border-[#34d399] focus:outline-none text-right"
-                      />
-                      {diferenciaDesglose !== 0 && (
-                        <button
-                          type="button"
-                          onClick={() => autoCompletarResto('Transferencia')}
-                          title="Asignar el saldo restante a Transferencia"
-                          className="px-2 py-1.5 bg-[#0f172a] border border-[#34d399]/40 hover:bg-[#34d399]/20 text-white rounded text-[10px] font-mono whitespace-nowrap"
-                        >
-                          Resto
-                        </button>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Tarjeta de Débito */}
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs font-bold text-white w-28">💳 T. Débito</span>
-                    <div className="flex items-center gap-1 flex-1">
-                      <input
-                        type="number"
-                        min="0"
-                        step="100"
-                        value={montoDebito || ''}
-                        onChange={(e) => setMontoDebito(Number(e.target.value) || 0)}
-                        placeholder="0"
-                        className="w-full bg-[#0f172a] border border-[#34d399]/50 rounded-lg px-3 py-1.5 text-xs text-white font-mono focus:border-[#34d399] focus:outline-none text-right"
-                      />
-                      {diferenciaDesglose !== 0 && (
-                        <button
-                          type="button"
-                          onClick={() => autoCompletarResto('Tarjeta de débito')}
-                          title="Asignar el saldo restante a Débito"
-                          className="px-2 py-1.5 bg-[#0f172a] border border-[#34d399]/40 hover:bg-[#34d399]/20 text-white rounded text-[10px] font-mono whitespace-nowrap"
-                        >
-                          Resto
-                        </button>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Tarjeta de Crédito */}
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs font-bold text-white w-28">💳 T. Crédito</span>
-                    <div className="flex items-center gap-1 flex-1">
-                      <input
-                        type="number"
-                        min="0"
-                        step="100"
-                        value={montoCredito || ''}
-                        onChange={(e) => setMontoCredito(Number(e.target.value) || 0)}
-                        placeholder="0"
-                        className="w-full bg-[#0f172a] border border-[#34d399]/50 rounded-lg px-3 py-1.5 text-xs text-white font-mono focus:border-[#34d399] focus:outline-none text-right"
-                      />
-                      {diferenciaDesglose !== 0 && (
-                        <button
-                          type="button"
-                          onClick={() => autoCompletarResto('Tarjeta de crédito')}
-                          title="Asignar el saldo restante a Crédito"
-                          className="px-2 py-1.5 bg-[#0f172a] border border-[#34d399]/40 hover:bg-[#34d399]/20 text-white rounded text-[10px] font-mono whitespace-nowrap"
-                        >
-                          Resto
-                        </button>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Pago con QR */}
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs font-bold text-white w-28">📲 Pago QR</span>
-                    <div className="flex items-center gap-1 flex-1">
-                      <input
-                        type="number"
-                        min="0"
-                        step="100"
-                        value={montoQr || ''}
-                        onChange={(e) => setMontoQr(Number(e.target.value) || 0)}
-                        placeholder="0"
-                        className="w-full bg-[#0f172a] border border-[#34d399]/50 rounded-lg px-3 py-1.5 text-xs text-white font-mono focus:border-[#34d399] focus:outline-none text-right"
-                      />
-                      {diferenciaDesglose !== 0 && (
-                        <button
-                          type="button"
-                          onClick={() => autoCompletarResto('Pago con QR')}
-                          title="Asignar el saldo restante a Pago QR"
-                          className="px-2 py-1.5 bg-[#0f172a] border border-[#34d399]/40 hover:bg-[#34d399]/20 text-white rounded text-[10px] font-mono whitespace-nowrap"
-                        >
-                          Resto
-                        </button>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Balance / Cuadratura de métodos */}
-                  <div className={`pt-2 border-t border-[#34d399]/20 flex items-center justify-between text-xs ${desgloseValido ? 'text-[#34d399]' : 'text-amber-400 font-bold'
-                    }`}>
-                    <span>
-                      {desgloseValido ? '✓ Desglose balanceado:' : '⚠️ Diferencia en desglose:'}
-                    </span>
-                    <span className="font-mono">
-                      Suma: ${sumaDesglose.toLocaleString('es-AR')}{' '}
-                      {diferenciaDesglose !== 0 && (
-                        <span className="text-amber-300">
-                          ({diferenciaDesglose > 0 ? `faltan $${diferenciaDesglose.toLocaleString('es-AR')}` : `sobran $${Math.abs(diferenciaDesglose).toLocaleString('es-AR')}`})
-                        </span>
-                      )}
-                    </span>
+                        Resto
+                      </Button>
+                    )}
                   </div>
                 </div>
-              )}
-            </div>
+              ))}
 
-            {/* Notas / Observaciones Opcionales */}
-            <div>
-              <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1 flex items-center gap-1">
-                <FileText className="w-3.5 h-3.5 text-[#34d399]" />
-                Notas del Pago (Opcional)
-              </label>
-              <input
-                type="text"
-                value={notas}
-                onChange={(e) => setNotas(e.target.value)}
-                placeholder="Ej. Seña entregada en caja, compromiso de saldo"
-                className="w-full bg-[#0f172a] border border-[#34d399]/50 rounded-lg px-3 py-1.5 text-xs text-white placeholder-slate-400 focus:border-[#34d399] focus:outline-none"
-              />
-            </div>
-
-            {/* Resumen Final de Transacción */}
-            <div className="bg-[#0f172a] border border-[#34d399]/30 rounded-xl p-3 text-xs space-y-1 text-slate-300">
-              <div className="flex justify-between">
-                <span>Total a registrar en caja:</span>
-                <span className="text-white font-bold font-mono">
-                  ${montoAbonado.toLocaleString('es-AR')}
+              {/* Cuadratura */}
+              <div
+                className={`pt-2 border-t border-border-subtle flex items-center justify-between text-xs ${
+                  desgloseValido ? 'text-status-ok' : 'text-status-warn font-bold'
+                }`}
+              >
+                <span>
+                  {desgloseValido ? '✓ Desglose balanceado:' : '⚠️ Diferencia en desglose:'}
+                </span>
+                <span className="font-mono">
+                  Suma: {formatMoney(sumaDesglose)}{' '}
+                  {diferenciaDesglose !== 0 && (
+                    <span className="text-status-warn">
+                      ({diferenciaDesglose > 0 ? `faltan ${formatMoney(diferenciaDesglose)}` : `sobran ${formatMoney(Math.abs(diferenciaDesglose))}`})
+                    </span>
+                  )}
                 </span>
               </div>
-              <div className="flex justify-between">
-                <span>Modalidad:</span>
-                <span className="text-white font-medium">
-                  {esMixto ? 'Combinado / Mixto' : metodoSimple}
-                </span>
-              </div>
-              {modoCobro === 'renovacion' && (
-                <div className="flex justify-between">
-                  <span>Próximo vencimiento:</span>
-                  <span className="text-white font-mono">
-                    {formatDisplayDate(fechaVencimiento)}
-                  </span>
-                </div>
-              )}
-              {saldoPendienteCalculado > 0 && (
-                <div className="flex justify-between text-amber-300 font-bold pt-1 border-t border-[#34d399]/20">
-                  <span>Saldo deudor que quedará:</span>
-                  <span className="font-mono">
-                    ${saldoPendienteCalculado.toLocaleString('es-AR')}
-                  </span>
-                </div>
-              )}
             </div>
-
-            {/* Actions */}
-            <div className="pt-2 flex items-center justify-end gap-2 shrink-0">
-              <button
-                type="button"
-                onClick={onClose}
-                disabled={loading}
-                className="px-4 py-2.5 rounded-lg border border-[#34d399]/40 text-xs font-bold text-slate-300 hover:text-white hover:bg-[#34d399]/10 transition-colors"
-              >
-                Cancelar
-              </button>
-              <button
-                type="submit"
-                disabled={loading || (esMixto && !desgloseValido)}
-                className="px-5 py-2.5 rounded-lg bg-[#34d399] hover:bg-[#34d399]/90 disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 text-[#0f172a] text-xs font-black tracking-wider uppercase flex items-center gap-2 transition-all shadow-md"
-              >
-                {loading ? (
-                  <>
-                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                    <span>Procesando...</span>
-                  </>
-                ) : (
-                  <>
-                    <Check className="w-3.5 h-3.5" />
-                    <span>
-                      {modoCobro === 'saldar_deuda' ? 'Registrar Cobro de Deuda' : 'Confirmar Cobro'}
-                    </span>
-                  </>
-                )}
-              </button>
-            </div>
-          </form>
+          )}
         </div>
-      </div>
-    </div>
+
+        {/* "Nuevo vencimiento" calculado con calculateNextExpiration, editable */}
+        {modoCobro === 'renovacion' && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Field label="Fecha de cobro">
+              <Input
+                variant="admin"
+                mono
+                type="date"
+                required
+                value={fechaRenovacion}
+                onChange={(e) => handleRenovacionChange(e.target.value)}
+              />
+            </Field>
+            <Field
+              label="Nuevo vencimiento"
+              hint={isPaidThroughFuture ? '+1 mes acumulado' : '1 mes desde cobro'}
+            >
+              <Input
+                variant="admin"
+                mono
+                type="date"
+                required
+                value={fechaVencimiento}
+                onChange={(e) => setFechaVencimiento(e.target.value)}
+              />
+            </Field>
+          </div>
+        )}
+
+        {/* Notas opcional */}
+        <Field label="Notas" hint="Opcional">
+          <Input
+            variant="admin"
+            type="text"
+            value={notas}
+            onChange={(e) => setNotas(e.target.value)}
+            placeholder="Ej. Seña entregada en caja, compromiso de saldo"
+          />
+        </Field>
+      </form>
+    </Drawer>
   );
 };

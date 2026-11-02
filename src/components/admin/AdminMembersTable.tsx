@@ -10,6 +10,7 @@ export interface AdminMembersTableProps {
   onRenewClick: (member: Member) => void;
   onOpenCardModal: (member: Member) => void;
   onOpenEditMember: (member: Member) => void;
+  onSelectMember?: (member: Member) => void;
   onDeleteClick?: (member: Member) => void;
 }
 
@@ -18,6 +19,7 @@ export const AdminMembersTable: React.FC<AdminMembersTableProps> = ({
   onRenewClick,
   onOpenCardModal,
   onOpenEditMember,
+  onSelectMember,
 }) => {
   return (
     <Card className="p-0 overflow-hidden select-none">
@@ -66,7 +68,7 @@ export const AdminMembersTable: React.FC<AdminMembersTableProps> = ({
                 return (
                   <tr
                     key={member.id}
-                    onClick={() => onOpenEditMember(member)}
+                    onClick={() => (onSelectMember ? onSelectMember(member) : onOpenEditMember(member))}
                     className="border-t border-border-subtle hover:bg-surface-200 transition-colors cursor-pointer"
                   >
                     {/* Socio: MemberAvatar 40px + nombre font-bold + DNI mono text-text-muted */}

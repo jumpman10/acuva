@@ -3,16 +3,18 @@ import { Member } from '../types';
 import { VirtualCard } from './VirtualCard';
 import { Drawer } from './ui';
 
-interface VirtualCardModalProps {
+export interface VirtualCardModalProps {
   isOpen: boolean;
   onClose: () => void;
   member: Member | null;
+  onBack?: () => void;
 }
 
 export const VirtualCardModal: React.FC<VirtualCardModalProps> = ({
   isOpen,
   onClose,
   member,
+  onBack,
 }) => {
   if (!member) return null;
 
@@ -20,6 +22,7 @@ export const VirtualCardModal: React.FC<VirtualCardModalProps> = ({
     <Drawer
       open={isOpen}
       onClose={onClose}
+      onBack={onBack}
       title="Carnet digital"
       subtitle={`${member.nombre} ${member.apellido}`}
     >

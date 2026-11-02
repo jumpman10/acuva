@@ -2,9 +2,17 @@ import React, { useState } from 'react';
 import { signInAdmin, signUpAdmin, getStoredSupabaseConfig, User } from '../lib/supabase';
 import isologo from '../assets/isologo.png';
 import logo from '../assets/logo.png';
-import { Shield, Lock, Mail, KeyRound, AlertCircle, CheckCircle2, RefreshCw, Database, ArrowLeft } from 'lucide-react';
+import { Card, Field, Input, Button } from './ui';
+import {
+  Shield,
+  Lock,
+  AlertCircle,
+  CheckCircle2,
+  Database,
+  ArrowLeft,
+} from 'lucide-react';
 
-interface AdminLoginPageProps {
+export interface AdminLoginPageProps {
   onLoginSuccess: (user: User) => void;
   onNavigateHome: () => void;
   onOpenSupabaseConfig: () => void;
@@ -33,7 +41,7 @@ export const AdminLoginPage: React.FC<AdminLoginPageProps> = ({
     const trimmedPass = password.trim();
 
     if (!trimmedEmail || !trimmedPass) {
-      setErrorMsg('Por favor completa todos los campos.');
+      setErrorMsg('Por favor completá todos los campos.');
       return;
     }
 
@@ -49,7 +57,9 @@ export const AdminLoginPage: React.FC<AdminLoginPageProps> = ({
           if (data.session) {
             onLoginSuccess(data.user);
           } else {
-            setSuccessMsg('Usuario creado exitosamente. Si la confirmación por email está activada en Supabase, revisa tu casilla.');
+            setSuccessMsg(
+              'Usuario creado exitosamente. Si la confirmación por email está activada en Supabase, revisá tu casilla.'
+            );
           }
         }
       } else {
@@ -65,7 +75,7 @@ export const AdminLoginPage: React.FC<AdminLoginPageProps> = ({
       console.error('Error de autenticación:', err);
       let message = err.message || 'Error al autenticar con Supabase.';
       if (message.includes('Invalid login credentials')) {
-        message = 'Credenciales inválidas. Verifica tu correo y contraseña.';
+        message = 'Credenciales inválidas. Verificá tu correo y contraseña.';
       } else if (message.includes('Email not confirmed')) {
         message = 'El correo electrónico aún no ha sido confirmado en Supabase.';
       } else if (message.includes('Password should be at least')) {
@@ -79,131 +89,120 @@ export const AdminLoginPage: React.FC<AdminLoginPageProps> = ({
 
   return (
     <div className="w-full max-w-md mx-auto py-8 px-4">
-      <div className="bg-[#0f172a] border border-[#34d399] rounded-2xl p-6 sm:p-8 shadow-2xl space-y-6">
+      <Card className="p-6 sm:p-8 space-y-6">
         {/* Top return link */}
-        <button
+        <Button
           type="button"
+          variant="ghost"
+          size="md"
+          icon={ArrowLeft}
           onClick={onNavigateHome}
-          className="text-slate-300 hover:text-white text-xs font-mono flex items-center gap-1.5 transition-colors"
+          className="text-xs -ml-2 text-text-muted hover:text-text-primary"
         >
-          <ArrowLeft className="w-3.5 h-3.5" />
-          <span>Volver al Portal de Socios</span>
-        </button>
+          Volver al Portal de Socios
+        </Button>
 
         {/* Header */}
-        <div className="text-center space-y-2">
+        <div className="text-center space-y-2.5">
           <div className="relative inline-block mx-auto mb-1">
             <img
               src={isologo}
               alt="Acuva"
               className="w-14 h-14 mx-auto object-contain drop-shadow-[0_4px_16px_rgba(52,211,153,0.25)]"
             />
-            <div className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-[#34d399] text-[#0f172a] flex items-center justify-center border-2 border-[#0f172a] shadow">
+            <div className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-accent text-ink-on-accent flex items-center justify-center border-2 border-surface-100 shadow">
               <Shield className="w-3.5 h-3.5" />
             </div>
           </div>
-          <img
-            src={logo}
-            alt="Acuva"
-            className="h-6 mx-auto object-contain"
-          />
-          <h2 className="text-base font-black tracking-wider text-white uppercase font-mono">
+          <img src={logo} alt="Acuva" className="h-6 mx-auto object-contain" />
+          <h2 className="text-base font-bold tracking-wide text-text-primary uppercase">
             {isSignUp ? 'Crear Administrador' : 'Panel de Administración'}
           </h2>
-          <p className="text-xs text-slate-300 font-mono">
+          <p className="text-xs text-text-muted">
             Acceso exclusivo del personal vía Supabase Auth
           </p>
         </div>
 
         {/* Supabase connection warning */}
         {!isConfigured && (
-          <div className="p-3.5 rounded-xl bg-[#0f172a] border border-amber-500/40 text-white text-xs space-y-2 font-mono">
-            <div className="flex items-center gap-2 text-amber-300 font-bold">
-              <AlertCircle className="w-4 h-4 text-amber-300" />
+          <div className="p-3.5 rounded-xl bg-status-warn-soft border border-status-warn-border text-status-warn text-xs space-y-2">
+            <div className="flex items-center gap-2 font-bold">
+              <AlertCircle className="w-4 h-4 shrink-0" />
               <span>Base de datos no configurada</span>
             </div>
-            <p className="text-slate-300 text-[11px]">
+            <p className="text-text-secondary text-[11px]">
               Se requiere conectar Supabase para autenticar al administrador.
             </p>
-            <button
+            <Button
               type="button"
+              variant="secondary"
+              size="md"
+              icon={Database}
               onClick={onOpenSupabaseConfig}
-              className="px-3 py-1.5 bg-[#0f172a] hover:bg-[#1e293b] text-white rounded border border-[#34d399] text-[11px] flex items-center gap-1.5"
+              className="w-full mt-1"
             >
-              <Database className="w-3.5 h-3.5 text-[#34d399]" />
               Configurar Supabase ahora
-            </button>
+            </Button>
           </div>
         )}
 
         {/* Error / Success messages */}
         {errorMsg && (
-          <div className="p-3 rounded-lg bg-[#0f172a] border border-red-500/50 text-red-400 text-xs font-mono flex items-start gap-2">
-            <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+          <div className="p-3 rounded-xl bg-status-danger-soft border border-status-danger-border text-status-danger text-xs flex items-start gap-2">
+            <AlertCircle className="w-4 h-4 text-status-danger shrink-0 mt-0.5" />
             <span>{errorMsg}</span>
           </div>
         )}
 
         {successMsg && (
-          <div className="p-3 rounded-lg bg-[#0f172a] border border-[#34d399]/50 text-[#34d399] text-xs font-mono flex items-start gap-2">
-            <CheckCircle2 className="w-4 h-4 text-[#34d399] shrink-0 mt-0.5" />
+          <div className="p-3 rounded-xl bg-status-ok-soft border border-status-ok-border text-status-ok text-xs flex items-start gap-2">
+            <CheckCircle2 className="w-4 h-4 text-status-ok shrink-0 mt-0.5" />
             <span>{successMsg}</span>
           </div>
         )}
 
         {/* Form */}
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-xs font-bold text-white uppercase font-mono mb-1.5">
-              Correo Electrónico
-            </label>
-            <div className="relative">
-              <Mail className="w-4 h-4 text-[#34d399] absolute left-3 top-1/2 -translate-y-1/2" />
-              <input
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="admin@acuva.com"
-                className="w-full bg-[#0f172a] border border-[#34d399] rounded-lg pl-9 pr-3.5 py-2.5 text-sm sm:text-xs text-white placeholder-slate-400 focus:outline-none focus:border-[#34d399] font-mono"
-              />
-            </div>
-          </div>
+          <Field label="Correo electrónico">
+            <Input
+              variant="admin"
+              mono
+              type="email"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="admin@acuva.com"
+            />
+          </Field>
 
-          <div>
-            <label className="block text-xs font-bold text-white uppercase font-mono mb-1.5">
-              Contraseña
-            </label>
-            <div className="relative">
-              <KeyRound className="w-4 h-4 text-[#34d399] absolute left-3 top-1/2 -translate-y-1/2" />
-              <input
-                type="password"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                minLength={6}
-                className="w-full bg-[#0f172a] border border-[#34d399] rounded-lg pl-9 pr-3.5 py-2.5 text-sm sm:text-xs text-white placeholder-slate-400 focus:outline-none focus:border-[#34d399] font-mono"
-              />
-            </div>
-          </div>
+          <Field label="Contraseña">
+            <Input
+              variant="admin"
+              mono
+              type="password"
+              required
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="••••••••"
+              minLength={6}
+            />
+          </Field>
 
-          <button
+          <Button
             type="submit"
+            variant="primary"
+            size="lg"
+            loading={loading}
             disabled={loading || !isConfigured}
-            className="w-full py-3 px-4 bg-[#34d399] hover:bg-[#34d399]/90 disabled:opacity-50 active:scale-95 text-[#0f172a] font-black text-xs sm:text-sm uppercase tracking-wider rounded-lg transition-all flex items-center justify-center gap-2 shadow-lg"
+            icon={Lock}
+            className="w-full mt-2"
           >
-            {loading ? (
-              <RefreshCw className="w-4 h-4 animate-spin text-[#0f172a]" />
-            ) : (
-              <Lock className="w-4 h-4 stroke-[2.5]" />
-            )}
             {isSignUp ? 'Registrar Administrador' : 'Ingresar al Panel'}
-          </button>
+          </Button>
         </form>
 
         {/* Toggle sign in / sign up */}
-        <div className="pt-3 border-t border-[#34d399]/20 text-center">
+        <div className="pt-3 border-t border-border-subtle text-center">
           <button
             type="button"
             onClick={() => {
@@ -211,14 +210,14 @@ export const AdminLoginPage: React.FC<AdminLoginPageProps> = ({
               setErrorMsg(null);
               setSuccessMsg(null);
             }}
-            className="text-[11px] text-slate-300 hover:text-white font-mono underline"
+            className="text-xs text-text-muted hover:text-text-primary transition-colors underline cursor-pointer"
           >
             {isSignUp
-              ? '¿Ya tienes cuenta? Iniciar sesión'
-              : '¿No tienes cuenta de admin? Registrarse'}
+              ? '¿Ya tenés cuenta? Iniciar sesión'
+              : '¿No tenés cuenta de admin? Registrarse'}
           </button>
         </div>
-      </div>
+      </Card>
     </div>
   );
 };

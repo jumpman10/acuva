@@ -240,6 +240,7 @@ export default function App() {
           onSave={handleSaveMember}
           member={editingMember}
           disciplines={disciplines}
+          onDelete={handleDeleteMember}
         />
 
         <QrScannerModal
