@@ -1,29 +1,19 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Member, DisciplineItem, PaymentStatus, PaymentMethod, MembershipStatus } from '../types';
 import { calculateNextExpiration, formatDateISO } from '../lib/dateUtils';
 import { processCarnetPhoto } from '../lib/imageUtils';
+import { deleteMember } from '../lib/storage';
 import { CameraCaptureModal } from './CameraCaptureModal';
-import {
-  X,
-  User,
-  Phone,
-  Calendar,
-  CreditCard,
-  Dumbbell,
-  Key,
-  Camera,
-  Upload,
-  Trash2,
-  Check,
-  Lock,
-} from 'lucide-react';
+import { Drawer, Button, Field, Input, MemberAvatar } from './ui';
+import { Camera, Upload, Trash2, AlertCircle } from 'lucide-react';
 
-interface MemberModalProps {
+export interface MemberModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSave: (data: any) => Promise<void>;
   member?: Member | null;
   disciplines: DisciplineItem[];
+  onDelete?: (id: string) => Promise<void>;
 }
 
 const PAYMENT_METHODS: PaymentMethod[] = [
@@ -40,6 +30,7 @@ export const MemberModal: React.FC<MemberModalProps> = ({
   onSave,
   member,
   disciplines,
+  onDelete,
 }) => {
   const [nombre, setNombre] = useState('');
   const [apellido, setApellido] = useState('');
@@ -55,9 +46,15 @@ export const MemberModal: React.FC<MemberModalProps> = ({
   const [metodoPago, setMetodoPago] = useState<PaymentMethod>('Efectivo');
   const [fotoUrl, setFotoUrl] = useState('');
   const [notas, setNotas] = useState('');
+
   const [loading, setLoading] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
   const [isCameraOpen, setIsCameraOpen] = useState(false);
   const [isProcessingPhoto, setIsProcessingPhoto] = useState(false);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (member) {
@@ -93,6 +90,8 @@ export const MemberModal: React.FC<MemberModalProps> = ({
       setFotoUrl('');
       setNotas('');
     }
+    setShowDeleteConfirm(false);
+    setFormError(null);
   }, [member, isOpen, disciplines]);
 
   const handleIngresoChange = (val: string) => {
@@ -118,7 +117,7 @@ export const MemberModal: React.FC<MemberModalProps> = ({
       setFotoUrl(compressed);
     } catch (err: any) {
       console.error('Error al procesar foto carnet:', err);
-      alert('Error al procesar la imagen: ' + (err.message || 'formato incompatible'));
+      setFormError('Error al procesar la imagen: ' + (err.message || 'formato incompatible'));
     } finally {
       setIsProcessingPhoto(false);
       e.target.value = '';
@@ -132,11 +131,12 @@ export const MemberModal: React.FC<MemberModalProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!nombre.trim() || !apellido.trim() || !dni.trim()) {
-      alert('Por favor completa Nombre, Apellido y DNI');
+      setFormError('Por favor completá Nombre, Apellido y DNI.');
       return;
     }
 
     setLoading(true);
+    setFormError(null);
     try {
       const calculatedVencimiento = fechaVencimiento || calculateNextExpiration(fechaIngreso);
       const isConSaldo = estadoPago === 'saldo' || estadoPago === 'pendiente';
@@ -153,9 +153,10 @@ export const MemberModal: React.FC<MemberModalProps> = ({
         fecha_vencimiento: calculatedVencimiento,
         estado_membresia: estadoMembresia,
         estado_pago: estadoPago,
-        saldo_pendiente: (estadoPago === 'parcial' || estadoPago === 'saldo')
-          ? Number(saldoPendiente > 0 ? saldoPendiente : (estadoPago === 'saldo' ? montoMensual : 0))
-          : 0,
+        saldo_pendiente:
+          estadoPago === 'parcial' || estadoPago === 'saldo'
+            ? Number(saldoPendiente > 0 ? saldoPendiente : estadoPago === 'saldo' ? montoMensual : 0)
+            : 0,
         metodo_pago: metodoPago,
         monto_mensual: Number(montoMensual),
         foto_url: fotoUrl.trim(),
@@ -164,9 +165,28 @@ export const MemberModal: React.FC<MemberModalProps> = ({
       onClose();
     } catch (err: any) {
       console.error(err);
-      alert('Error al guardar socio: ' + (err.message || 'Error desconocido'));
+      setFormError('Error al guardar socio: ' + (err.message || 'Error desconocido'));
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!member) return;
+    setIsDeleting(true);
+    setFormError(null);
+    try {
+      if (onDelete) {
+        await onDelete(member.id);
+      } else {
+        await deleteMember(member.id);
+      }
+      onClose();
+    } catch (err: any) {
+      console.error('Error al eliminar socio:', err);
+      setFormError('No se pudo eliminar al socio. Por favor reintentá.');
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -174,404 +194,347 @@ export const MemberModal: React.FC<MemberModalProps> = ({
 
   return (
     <>
-      <div className="fixed inset-0 z-50 overflow-y-auto bg-[#0f172a]/80 backdrop-blur-sm">
-        <div className="min-h-full flex items-center justify-center p-2.5 sm:p-4">
-          <div className="bg-[#0f172a] border border-[#34d399] rounded-2xl w-full max-w-xl my-auto overflow-hidden shadow-2xl relative flex flex-col max-h-[calc(100dvh-1.5rem)] sm:max-h-[90vh]">
-            {/* Header */}
-            <div className="p-4 sm:p-5 border-b border-[#34d399]/20 flex items-center justify-between shrink-0 bg-[#0f172a]">
-              <div>
-                <h3 className="text-base sm:text-lg font-black text-white uppercase font-mono tracking-wide">
-                  {member ? 'Editar Socio' : 'Nuevo Socio'}
-                </h3>
-                <p className="text-[11px] text-slate-300 font-mono mt-0.5">
-                  {member
-                    ? 'Modifica los datos del socio registrado'
-                    : 'Registra un nuevo miembro del gimnasio'}
+      <Drawer
+        open={isOpen}
+        onClose={onClose}
+        title={member ? 'Editar socio' : 'Nuevo socio'}
+        subtitle="Datos del carnet"
+        footer={
+          <div className="space-y-2">
+            <Button
+              type="submit"
+              variant="primary"
+              size="lg"
+              loading={loading}
+              disabled={loading || isDeleting}
+              className="w-full"
+              form="member-form"
+            >
+              {member ? 'Guardar cambios' : 'Crear socio'}
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              size="md"
+              disabled={loading || isDeleting}
+              onClick={onClose}
+              className="w-full"
+            >
+              Cancelar
+            </Button>
+          </div>
+        }
+      >
+        <form id="member-form" onSubmit={handleSubmit} className="space-y-5">
+          {formError && (
+            <div className="bg-status-danger-soft border border-status-danger-border text-status-danger rounded-xl p-3 text-xs flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>{formError}</span>
+            </div>
+          )}
+
+          {/* Bloque "Foto del socio" con avatar 72px y Button secondary "Tomar con la cámara o subir" */}
+          <div className="bg-surface-100 border border-border-subtle rounded-2xl p-4 space-y-3">
+            <span className="text-[11px] font-extrabold uppercase tracking-[0.12em] text-text-muted block">
+              Foto del socio
+            </span>
+            <div className="flex items-center gap-4">
+              <MemberAvatar
+                src={fotoUrl}
+                name={`${nombre} ${apellido}`}
+                className="w-[72px] h-[72px] text-2xl shrink-0"
+              />
+              <div className="space-y-2 min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    icon={Camera}
+                    disabled={isProcessingPhoto}
+                    onClick={() => setIsCameraOpen(true)}
+                  >
+                    Tomar con la cámara o subir
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    icon={Upload}
+                    disabled={isProcessingPhoto}
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    Subir
+                  </Button>
+                  {fotoUrl && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      onClick={() => setFotoUrl('')}
+                      className="text-status-danger hover:bg-status-danger-soft"
+                    >
+                      Quitar
+                    </Button>
+                  )}
+                </div>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handleFileUpload}
+                  disabled={isProcessingPhoto}
+                  className="hidden"
+                />
+                <p className="text-[11px] text-text-muted">
+                  Formato cuadrado 1:1 optimizado para el carnet digital.
                 </p>
               </div>
+            </div>
+          </div>
+
+          {/* Campos en grilla de 2 columnas en desktop */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+            <Field label="Nombre">
+              <Input
+                variant="admin"
+                required
+                value={nombre}
+                onChange={(e) => setNombre(e.target.value)}
+                placeholder="Ej. Marcos"
+              />
+            </Field>
+
+            <Field label="Apellido">
+              <Input
+                variant="admin"
+                required
+                value={apellido}
+                onChange={(e) => setApellido(e.target.value)}
+                placeholder="Ej. Maidana"
+              />
+            </Field>
+
+            <Field label="DNI">
+              <Input
+                variant="admin"
+                mono
+                required
+                value={dni}
+                onChange={(e) => setDni(e.target.value)}
+                placeholder="40123456"
+              />
+            </Field>
+
+            <Field label="Teléfono / WhatsApp">
+              <Input
+                variant="admin"
+                mono
+                value={telefono}
+                onChange={(e) => setTelefono(e.target.value)}
+                placeholder="+54 9 11 1234 5678"
+              />
+            </Field>
+
+            <Field label="Fecha de nacimiento">
+              <Input
+                variant="admin"
+                mono
+                type="date"
+                value={fechaNacimiento}
+                onChange={(e) => setFechaNacimiento(e.target.value)}
+              />
+            </Field>
+
+            <Field label="Disciplina">
+              <div className="relative">
+                <select
+                  value={disciplina}
+                  onChange={(e) => handleDisciplineChange(e.target.value)}
+                  className="w-full h-11 bg-surface-sunken border border-border-default rounded-xl px-3.5 text-sm text-text-primary focus:border-accent focus:outline-none appearance-none cursor-pointer transition-colors"
+                >
+                  {disciplines.map((d) => (
+                    <option key={d.id} value={d.nombre} className="bg-surface-100 text-text-primary">
+                      {d.nombre} (${d.precio.toLocaleString('es-AR')})
+                    </option>
+                  ))}
+                </select>
+                <div className="absolute inset-y-0 right-0 flex items-center pr-3.5 pointer-events-none text-text-muted text-xs">
+                  ▼
+                </div>
+              </div>
+            </Field>
+
+            <Field label="Cuota mensual ($)">
+              <Input
+                variant="admin"
+                mono
+                type="number"
+                min="0"
+                step="500"
+                value={montoMensual}
+                onChange={(e) => setMontoMensual(Number(e.target.value) || 0)}
+              />
+            </Field>
+
+            <Field label="Fecha de ingreso">
+              <Input
+                variant="admin"
+                mono
+                type="date"
+                value={fechaIngreso}
+                onChange={(e) => handleIngresoChange(e.target.value)}
+              />
+            </Field>
+
+            <Field label="Vencimiento inicial">
+              <Input
+                variant="admin"
+                mono
+                type="date"
+                value={fechaVencimiento}
+                onChange={(e) => setFechaVencimiento(e.target.value)}
+              />
+            </Field>
+
+            <Field label="Método de pago">
+              <div className="relative">
+                <select
+                  value={metodoPago}
+                  onChange={(e) => setMetodoPago(e.target.value as PaymentMethod)}
+                  disabled={estadoPago === 'saldo' || estadoPago === 'pendiente'}
+                  className="w-full h-11 bg-surface-sunken border border-border-default rounded-xl px-3.5 text-sm text-text-primary focus:border-accent focus:outline-none appearance-none cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {PAYMENT_METHODS.map((method) => (
+                    <option key={method} value={method} className="bg-surface-100 text-text-primary">
+                      {method}
+                    </option>
+                  ))}
+                </select>
+                <div className="absolute inset-y-0 right-0 flex items-center pr-3.5 pointer-events-none text-text-muted text-xs">
+                  ▼
+                </div>
+              </div>
+            </Field>
+          </div>
+
+          {/* Estado de pago inicial */}
+          <div className="bg-surface-sunken border border-border-default rounded-xl p-3.5 space-y-2.5">
+            <span className="text-xs font-bold text-text-secondary block">
+              Estado de pago inicial
+            </span>
+            <div className="grid grid-cols-3 gap-2">
               <button
                 type="button"
-                onClick={onClose}
-                className="w-8 h-8 rounded-lg bg-[#0f172a] hover:bg-[#34d399]/20 border border-[#34d399]/30 text-slate-300 hover:text-white flex items-center justify-center transition-colors"
+                onClick={() => setEstadoPago('pagado')}
+                className={`py-2 px-2 rounded-xl text-xs font-bold border transition-all text-center cursor-pointer ${
+                  estadoPago === 'pagado'
+                    ? 'border-accent bg-accent-soft text-accent'
+                    : 'border-border-default bg-surface-100 text-text-secondary hover:text-text-primary'
+                }`}
               >
-                <X className="w-4 h-4" />
+                Pagado
+              </button>
+              <button
+                type="button"
+                onClick={() => setEstadoPago('parcial')}
+                className={`py-2 px-2 rounded-xl text-xs font-bold border transition-all text-center cursor-pointer ${
+                  estadoPago === 'parcial'
+                    ? 'border-status-warn bg-status-warn-soft text-status-warn'
+                    : 'border-border-default bg-surface-100 text-text-secondary hover:text-text-primary'
+                }`}
+              >
+                Parcial
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setEstadoPago('saldo');
+                  if (!saldoPendiente) setSaldoPendiente(montoMensual);
+                }}
+                className={`py-2 px-2 rounded-xl text-xs font-bold border transition-all text-center cursor-pointer ${
+                  estadoPago === 'saldo' || estadoPago === 'pendiente'
+                    ? 'border-status-danger bg-status-danger-soft text-status-danger'
+                    : 'border-border-default bg-surface-100 text-text-secondary hover:text-text-primary'
+                }`}
+              >
+                Saldo
               </button>
             </div>
 
-            {/* Form */}
-            <form onSubmit={handleSubmit} className="flex flex-col flex-1 overflow-hidden min-h-0">
-              <div className="p-4 sm:p-5 space-y-4 overflow-y-auto flex-1">
-                {/* Nombre y Apellido */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-[11px] font-bold text-white uppercase font-mono mb-1 flex items-center gap-1.5">
-                      <User className="w-3 h-3 text-[#34d399]" />
-                      Nombre <span className="text-[#34d399]">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      value={nombre}
-                      onChange={(e) => setNombre(e.target.value)}
-                      placeholder="Ej: Marcos"
-                      className="w-full bg-[#0f172a] border border-[#34d399]/50 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-400 focus:outline-none focus:border-[#34d399] font-mono"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-bold text-white uppercase font-mono mb-1 flex items-center gap-1.5">
-                      <User className="w-3 h-3 text-[#34d399]" />
-                      Apellido <span className="text-[#34d399]">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      value={apellido}
-                      onChange={(e) => setApellido(e.target.value)}
-                      placeholder="Ej: Maidana"
-                      className="w-full bg-[#0f172a] border border-[#34d399]/50 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-400 focus:outline-none focus:border-[#34d399] font-mono"
-                    />
-                  </div>
-                </div>
-
-                {/* DNI, Fecha de Nacimiento y Teléfono */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div>
-                    <label className="block text-[11px] font-bold text-white uppercase font-mono mb-1 flex items-center gap-1.5">
-                      <Key className="w-3 h-3 text-[#34d399]" />
-                      DNI (Clave) <span className="text-[#34d399]">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      value={dni}
-                      onChange={(e) => setDni(e.target.value)}
-                      placeholder="40123456"
-                      className="w-full bg-[#0f172a] border border-[#34d399]/50 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-400 focus:outline-none focus:border-[#34d399] font-mono"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-bold text-white uppercase font-mono mb-1 flex items-center gap-1.5">
-                      <Calendar className="w-3 h-3 text-[#34d399]" />
-                      Fecha de Nacimiento
-                    </label>
-                    <input
-                      type="date"
-                      value={fechaNacimiento}
-                      onChange={(e) => setFechaNacimiento(e.target.value)}
-                      className="w-full bg-[#0f172a] border border-[#34d399]/50 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-[#34d399] font-mono"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-bold text-white uppercase font-mono mb-1 flex items-center gap-1.5">
-                      <Phone className="w-3 h-3 text-[#34d399]" />
-                      WhatsApp / Teléfono
-                    </label>
-                    <input
-                      type="text"
-                      value={telefono}
-                      onChange={(e) => setTelefono(e.target.value)}
-                      placeholder="+54 9 11 1234 5678"
-                      className="w-full bg-[#0f172a] border border-[#34d399]/50 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-400 focus:outline-none focus:border-[#34d399] font-mono"
-                    />
-                  </div>
-                </div>
-
-                {/* Disciplina y Cuota Mensual */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-[11px] font-bold text-white uppercase font-mono mb-1 flex items-center gap-1.5">
-                      <Dumbbell className="w-3 h-3 text-[#34d399]" />
-                      Disciplina
-                    </label>
-                    <select
-                      value={disciplina}
-                      onChange={(e) => handleDisciplineChange(e.target.value)}
-                      className="w-full bg-[#0f172a] border border-[#34d399]/50 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-[#34d399] font-mono"
-                    >
-                      {disciplines.map((d) => (
-                        <option key={d.id} value={d.nombre} className="bg-[#0f172a] text-white">
-                          {d.nombre} (${d.precio.toLocaleString('es-AR')})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-bold text-white uppercase font-mono mb-1 flex items-center gap-1.5">
-                      <CreditCard className="w-3 h-3 text-[#34d399]" />
-                      Monto Mensual ($ ARS)
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      step="500"
-                      value={montoMensual}
-                      onChange={(e) => setMontoMensual(Number(e.target.value))}
-                      className="w-full bg-[#0f172a] border border-[#34d399]/50 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-[#34d399] font-mono"
-                    />
-                  </div>
-                </div>
-
-                {/* Fechas de Ingreso y Vencimiento */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-[11px] font-bold text-white uppercase font-mono mb-1 flex items-center gap-1.5">
-                      <Calendar className="w-3 h-3 text-[#34d399]" />
-                      Fecha de Ingreso
-                    </label>
-                    <input
-                      type="date"
-                      value={fechaIngreso}
-                      onChange={(e) => handleIngresoChange(e.target.value)}
-                      className="w-full bg-[#0f172a] border border-[#34d399]/50 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-[#34d399] font-mono"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-bold text-white uppercase font-mono mb-1 flex items-center gap-1.5">
-                      <Calendar className="w-3 h-3 text-[#34d399]" />
-                      Vencimiento (1 Mes)
-                    </label>
-                    <input
-                      type="date"
-                      value={fechaVencimiento}
-                      onChange={(e) => setFechaVencimiento(e.target.value)}
-                      className="w-full bg-[#0f172a] border border-[#34d399]/50 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-[#34d399] font-mono"
-                    />
-                  </div>
-                </div>
-
-                {/* Estado de Pago y Método */}
-                <div className="bg-[#0f172a] p-3 rounded-xl border border-[#34d399]/30 space-y-3">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-[10px] font-bold text-slate-300 uppercase font-mono mb-1.5">
-                        Estado de Pago Inicial
-                      </label>
-                      <div className="flex items-center gap-1.5">
-                        <label
-                          className={`flex-1 py-1.5 px-2 rounded-lg border text-center cursor-pointer transition-all flex items-center justify-center gap-1 ${estadoPago === 'pagado'
-                            ? 'bg-[#34d399] text-[#0f172a] font-black border-[#34d399]'
-                            : 'bg-[#0f172a] text-slate-300 border-[#34d399]/40 hover:border-[#34d399]'
-                            }`}
-                        >
-                          <input
-                            type="radio"
-                            name="estadoPago"
-                            checked={estadoPago === 'pagado'}
-                            onChange={() => setEstadoPago('pagado')}
-                            className="hidden"
-                          />
-                          <Check className="w-3 h-3" />
-                          <span className="text-[10px] font-mono uppercase">Pagado</span>
-                        </label>
-
-                        <label
-                          className={`flex-1 py-1.5 px-2 rounded-lg border text-center cursor-pointer transition-all flex items-center justify-center gap-1 ${estadoPago === 'parcial'
-                            ? 'bg-amber-400 text-slate-900 font-black border-amber-300'
-                            : 'bg-[#0f172a] text-slate-300 border-[#34d399]/40 hover:border-[#34d399]'
-                            }`}
-                        >
-                          <input
-                            type="radio"
-                            name="estadoPago"
-                            checked={estadoPago === 'parcial'}
-                            onChange={() => setEstadoPago('parcial')}
-                            className="hidden"
-                          />
-                          <span className="text-[10px] font-mono uppercase">Parcial</span>
-                        </label>
-
-                        <label
-                          className={`flex-1 py-1.5 px-2 rounded-lg border text-center cursor-pointer transition-all flex items-center justify-center gap-1 ${estadoPago === 'saldo' || estadoPago === 'pendiente'
-                            ? 'bg-rose-500 text-white font-bold border-rose-400'
-                            : 'bg-[#0f172a] text-slate-300 border-[#34d399]/40 hover:border-[#34d399]'
-                            }`}
-                        >
-                          <input
-                            type="radio"
-                            name="estadoPago"
-                            checked={estadoPago === 'saldo' || estadoPago === 'pendiente'}
-                            onChange={() => {
-                              setEstadoPago('saldo');
-                              if (!saldoPendiente) setSaldoPendiente(montoMensual);
-                            }}
-                            className="hidden"
-                          />
-                          <span className="text-[10px] font-mono uppercase">Saldo</span>
-                        </label>
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="block text-[10px] font-bold text-slate-300 uppercase font-mono mb-1.5">
-                        Método de Pago
-                      </label>
-                      <select
-                        value={metodoPago}
-                        onChange={(e) => setMetodoPago(e.target.value as PaymentMethod)}
-                        disabled={estadoPago === 'saldo' || estadoPago === 'pendiente'}
-                        className="w-full bg-[#0f172a] border border-[#34d399]/50 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-[#34d399] font-mono disabled:opacity-40"
-                      >
-                        {PAYMENT_METHODS.map((method) => (
-                          <option key={method} value={method} className="bg-[#0f172a] text-white">
-                            {method}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
-                  {/* Si es Pago Parcial o Saldo, input para Saldo Pendiente */}
-                  {(estadoPago === 'parcial' || estadoPago === 'saldo') && (
-                    <div className="pt-2 border-t border-[#34d399]/20 flex items-center justify-between gap-3">
-                      <span className="text-xs text-amber-300 font-bold">
-                        {estadoPago === 'saldo' ? 'Saldo adeudado ($):' : 'Saldo pendiente adeudado ($):'}
-                      </span>
-                      <div className="w-36">
-                        <input
-                          type="number"
-                          min="0"
-                          step="100"
-                          value={saldoPendiente}
-                          onChange={(e) => setSaldoPendiente(Number(e.target.value) || 0)}
-                          className="w-full bg-[#0f172a] border border-amber-500/60 rounded-lg px-2.5 py-1 text-xs text-white font-mono text-right focus:outline-none focus:border-amber-400"
-                          placeholder={String(montoMensual)}
-                        />
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Foto de Perfil Carnet 1:1 */}
-                <div className="bg-[#0f172a] border border-[#34d399]/40 rounded-xl p-3 sm:p-3.5 space-y-2.5">
-                  <div className="flex items-center justify-between">
-                    <label className="text-[11px] font-bold text-white uppercase font-mono flex items-center gap-1.5">
-                      <Camera className="w-3.5 h-3.5 text-[#34d399]" />
-                      Foto Carnet (1:1)
-                    </label>
-                    <span className="text-[10px] text-slate-400 font-mono">
-                      {fotoUrl ? 'Lista para carnet' : 'Opcional (se puede subir después)'}
-                    </span>
-                  </div>
-
-                  <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-                    {/* Preview 1:1 Box */}
-                    <div className="relative w-20 h-20 rounded-xl border border-[#34d399]/40 bg-[#0f172a] overflow-hidden shrink-0 flex items-center justify-center shadow-inner">
-                      {fotoUrl ? (
-                        <>
-                          <img
-                            src={fotoUrl}
-                            alt="Foto carnet socio"
-                            className="w-full h-full object-cover"
-                          />
-                          <div className="absolute bottom-0 inset-x-0 bg-[#0f172a]/90 backdrop-blur-[2px] text-center py-0.5 text-[8px] font-mono text-white/90">
-                            1:1 Carnet
-                          </div>
-                        </>
-                      ) : (
-                        <div className="flex flex-col items-center justify-center text-slate-400 p-1 text-center">
-                          <User className="w-6 h-6 stroke-[1.5] text-slate-500 mb-0.5" />
-                          <span className="text-[8px] font-mono uppercase tracking-tight text-slate-400 leading-none">
-                            Sin foto
-                          </span>
-                        </div>
-                      )}
-
-                      {isProcessingPhoto && (
-                        <div className="absolute inset-0 bg-[#0f172a]/90 flex items-center justify-center text-white text-[10px] font-mono">
-                          Procesando...
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Actions */}
-                    <div className="flex-1 space-y-2">
-                      <div className="flex flex-wrap items-center gap-2">
-                        {/* Botón tomar foto con cámara */}
-                        <button
-                          type="button"
-                          onClick={() => setIsCameraOpen(true)}
-                          className="px-3 py-1.5 rounded-lg bg-[#34d399] hover:bg-[#34d399]/90 active:scale-95 text-[#0f172a] font-black uppercase text-[11px] tracking-wide font-mono flex items-center gap-1.5 transition-all shadow-sm"
-                        >
-                          <Camera className="w-3.5 h-3.5 stroke-[2.5]" />
-                          Sacar foto con cámara
-                        </button>
-
-                        {/* Botón subir archivo */}
-                        <label className="cursor-pointer bg-[#0f172a] hover:bg-[#34d399]/20 text-white text-[11px] px-3 py-1.5 rounded-lg border border-[#34d399]/40 inline-flex items-center gap-1.5 font-mono transition-colors">
-                          <Upload className="w-3.5 h-3.5 text-[#34d399]" />
-                          Subir archivo
-                          <input
-                            type="file"
-                            accept="image/*"
-                            onChange={handleFileUpload}
-                            disabled={isProcessingPhoto}
-                            className="hidden"
-                          />
-                        </label>
-
-                        {/* Botón quitar foto */}
-                        {fotoUrl && (
-                          <button
-                            type="button"
-                            onClick={() => setFotoUrl('')}
-                            title="Quitar foto"
-                            className="px-2.5 py-1.5 rounded-lg bg-[#0f172a] hover:bg-red-950/40 text-slate-300 hover:text-red-400 border border-[#34d399]/30 hover:border-red-500/50 text-[11px] font-mono flex items-center gap-1 transition-colors"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                            Quitar
-                          </button>
-                        )}
-                      </div>
-
-                      <p className="text-[10px] text-slate-400 font-mono leading-relaxed">
-                        Formato cuadrado 1:1 tipo carnet optimizado (&lt;40KB). Si no tomas ni subes ninguna foto, se guardará vacía para que puedas subirla después.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Notas */}
-                <div>
-                  <label className="block text-[11px] font-bold text-white uppercase font-mono mb-1">
-                    Notas u Observaciones
-                  </label>
-                  <textarea
-                    rows={2}
-                    value={notas}
-                    onChange={(e) => setNotas(e.target.value)}
-                    placeholder="Objetivos, apto médico, lesiones previas..."
-                    className="w-full bg-[#0f172a] border border-[#34d399]/50 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-400 focus:outline-none focus:border-[#34d399] font-mono"
+            {(estadoPago === 'parcial' || estadoPago === 'saldo') && (
+              <div className="pt-2 border-t border-border-subtle flex items-center justify-between gap-3">
+                <span className="text-xs text-status-warn font-semibold">
+                  Saldo pendiente ($):
+                </span>
+                <div className="w-36">
+                  <Input
+                    variant="admin"
+                    mono
+                    type="number"
+                    min="0"
+                    step="100"
+                    value={saldoPendiente}
+                    onChange={(e) => setSaldoPendiente(Number(e.target.value) || 0)}
+                    className="h-9 text-xs text-right"
+                    placeholder={String(montoMensual)}
                   />
                 </div>
-
               </div>
-
-              {/* Botones de acción */}
-              <div className="p-3.5 sm:p-4 border-t border-[#34d399]/20 bg-[#0f172a] flex items-center justify-end gap-2.5 shrink-0">
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className="px-4 py-2 rounded-lg border border-[#34d399]/40 text-slate-300 hover:text-white hover:bg-[#34d399]/10 text-xs font-mono transition-colors"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="px-5 py-2 rounded-lg bg-[#34d399] hover:bg-[#34d399]/90 active:scale-95 text-[#0f172a] font-black uppercase text-xs tracking-wider transition-all shadow-sm"
-                >
-                  {loading ? 'Guardando...' : member ? 'Actualizar Socio' : 'Guardar Socio'}
-                </button>
-              </div>
-            </form>
+            )}
           </div>
-        </div>
-      </div>
+
+          {/* Notas */}
+          <Field label="Notas u observaciones" hint="Opcional">
+            <Input
+              variant="admin"
+              value={notas}
+              onChange={(e) => setNotas(e.target.value)}
+              placeholder="Objetivos, apto médico, lesiones previas..."
+            />
+          </Field>
+
+          {/* Eliminar: Button danger con confirmación dentro del Drawer, sin confirm() */}
+          {member && (
+            <div className="pt-4 border-t border-border-subtle">
+              {showDeleteConfirm ? (
+                <div className="bg-status-danger-soft border border-status-danger-border rounded-xl p-3.5 space-y-2.5">
+                  <p className="text-xs font-semibold text-status-danger">
+                    ¿Confirmás que querés eliminar a este socio? Esta acción es definitiva.
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="danger"
+                      size="md"
+                      loading={isDeleting}
+                      onClick={handleDelete}
+                    >
+                      Confirmar eliminación
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="md"
+                      disabled={isDeleting}
+                      onClick={() => setShowDeleteConfirm(false)}
+                    >
+                      Cancelar
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <Button
+                  type="button"
+                  variant="danger"
+                  size="md"
+                  icon={Trash2}
+                  onClick={() => setShowDeleteConfirm(true)}
+                >
+                  Eliminar socio
+                </Button>
+              )}
+            </div>
+          )}
+        </form>
+      </Drawer>
 
       {/* Modal de Cámara para Captura 1:1 */}
       <CameraCaptureModal

@@ -2,6 +2,8 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { Member, AccessLog, PaymentLog, RenewMemberOptions } from '../types';
 import { getMembershipTone, formatMoney, formatShortDate } from '../lib/status';
 import { RenewMemberModal } from './RenewMemberModal';
+import { VirtualCardModal } from './VirtualCardModal';
+import { MemberDetailDrawer } from './MemberDetailDrawer';
 import { Pagination } from './Pagination';
 import { AdminMetrics } from './admin/AdminMetrics';
 import { AdminFiltersBar } from './admin/AdminFiltersBar';
@@ -59,6 +61,51 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [statusFilter, setStatusFilter] = useState<'all' | 'activo' | 'por_vencer' | 'vencido'>('all');
   const [disciplineFilter, setDisciplineFilter] = useState<string>('all');
   const [renewingMember, setRenewingMember] = useState<Member | null>(null);
+  const [detailMember, setDetailMember] = useState<Member | null>(null);
+  const [cardModalMember, setCardModalMember] = useState<Member | null>(null);
+  const [returnToFichaMember, setReturnToFichaMember] = useState<Member | null>(null);
+
+  // Keep detailMember in sync with live members list if updated
+  const activeDetailMember = useMemo(() => {
+    if (!detailMember) return null;
+    return members.find((m) => m.id === detailMember.id) || detailMember;
+  }, [detailMember, members]);
+
+  // Ficha actions
+  const handleCobrarFromFicha = (m: Member) => {
+    setReturnToFichaMember(m);
+    setDetailMember(null);
+    setRenewingMember(m);
+  };
+
+  const handleVerCarnetFromFicha = (m: Member) => {
+    setReturnToFichaMember(m);
+    setDetailMember(null);
+    setCardModalMember(m);
+  };
+
+  const handleEditarFromFicha = (m: Member) => {
+    setDetailMember(null);
+    onOpenEditMember(m);
+  };
+
+  const handleBackFromRenew = () => {
+    const target = returnToFichaMember;
+    setRenewingMember(null);
+    setReturnToFichaMember(null);
+    if (target) {
+      setDetailMember(target);
+    }
+  };
+
+  const handleBackFromCard = () => {
+    const target = returnToFichaMember;
+    setCardModalMember(null);
+    setReturnToFichaMember(null);
+    if (target) {
+      setDetailMember(target);
+    }
+  };
 
   // Statistics using getMembershipTone
   const totalMembers = members.length;
@@ -343,6 +390,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   onRenewClick={(m) => setRenewingMember(m)}
                   onOpenCardModal={onOpenCardModal}
                   onOpenEditMember={onOpenEditMember}
+                  onSelectMember={(m) => setDetailMember(m)}
                 />
               ))
             )}
@@ -364,6 +412,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               onRenewClick={(m) => setRenewingMember(m)}
               onOpenCardModal={onOpenCardModal}
               onOpenEditMember={onOpenEditMember}
+              onSelectMember={(m) => setDetailMember(m)}
             />
 
             <Pagination
@@ -660,13 +709,44 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {/* Renewal Modal */}
       <RenewMemberModal
         isOpen={Boolean(renewingMember)}
-        onClose={() => setRenewingMember(null)}
+        onClose={() => {
+          setRenewingMember(null);
+          setReturnToFichaMember(null);
+        }}
+        onBack={returnToFichaMember ? handleBackFromRenew : undefined}
         member={renewingMember}
         disciplines={disciplines}
         onConfirmRenew={async (id, options) => {
           await onRenewMember(id, options);
           setRenewingMember(null);
+          setReturnToFichaMember(null);
         }}
+      />
+
+      {/* Virtual Card Modal (opened from Ficha with onBack) */}
+      <VirtualCardModal
+        isOpen={Boolean(cardModalMember)}
+        onClose={() => {
+          setCardModalMember(null);
+          setReturnToFichaMember(null);
+        }}
+        onBack={returnToFichaMember ? handleBackFromCard : undefined}
+        member={cardModalMember}
+      />
+
+      {/* Ficha del socio Drawer */}
+      <MemberDetailDrawer
+        isOpen={Boolean(activeDetailMember)}
+        onClose={() => {
+          setDetailMember(null);
+          setReturnToFichaMember(null);
+        }}
+        member={activeDetailMember}
+        accessLogs={accessLogs}
+        paymentLogs={paymentLogs}
+        onCobrar={handleCobrarFromFicha}
+        onEditar={handleEditarFromFicha}
+        onVerCarnet={handleVerCarnetFromFicha}
       />
     </div>
   );

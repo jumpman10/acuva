@@ -1,23 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Html5Qrcode } from 'html5-qrcode';
 import { Member, AccessLog } from '../types';
-import { getCalculatedStatus, formatDisplayDate } from '../lib/dateUtils';
+import { getCalculatedStatus } from '../lib/dateUtils';
+import { getMembershipTone, TONE_CLASSES, formatMoney } from '../lib/status';
 import { playSuccessChime, playWarningBeep } from '../lib/sound';
-import { MemberAvatar } from './MemberAvatar';
-import isologo from '../assets/isologo.png';
-import {
-  X,
-  Camera,
-  Check,
-  AlertCircle,
-  RefreshCw,
-  CreditCard,
-  Calendar,
-  Dumbbell,
-  Upload
-} from 'lucide-react';
+import { Drawer, Button, Input, MemberAvatar } from './ui';
+import { RefreshCw, ScanLine, AlertCircle } from 'lucide-react';
 
-interface QrScannerModalProps {
+export interface QrScannerModalProps {
   isOpen: boolean;
   onClose: () => void;
   members: Member[];
@@ -30,13 +20,12 @@ export const QrScannerModal: React.FC<QrScannerModalProps> = ({
   onClose,
   members,
   onLogAccess,
-  onRenewMember,
+  onRenewMember: _onRenewMember,
 }) => {
   const [scannedResult, setScannedResult] = useState<string | null>(null);
   const [matchedMember, setMatchedMember] = useState<Member | null>(null);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [isScanning, setIsScanning] = useState(false);
-  const [accessLogged, setAccessLogged] = useState(false);
   const [manualCode, setManualCode] = useState('');
 
   const scannerRef = useRef<Html5Qrcode | null>(null);
@@ -57,7 +46,9 @@ export const QrScannerModal: React.FC<QrScannerModalProps> = ({
     if (found) {
       setMatchedMember(found);
       const status = getCalculatedStatus(found.fecha_vencimiento, found.estado_pago);
-      const isAuthorized = status.membershipStatus !== 'vencido' && (found.estado_pago === 'pagado' || found.estado_pago === 'parcial');
+      const isAuthorized =
+        status.membershipStatus !== 'vencido' &&
+        (found.estado_pago === 'pagado' || found.estado_pago === 'parcial');
 
       if (isAuthorized) {
         playSuccessChime();
@@ -65,19 +56,22 @@ export const QrScannerModal: React.FC<QrScannerModalProps> = ({
         playWarningBeep();
       }
 
+      const motivo = isAuthorized
+        ? found.estado_pago === 'parcial'
+          ? `Acceso Válido (Saldo pendiente: ${formatMoney(found.saldo_pendiente || 0)})`
+          : 'Acceso Válido - Al Día'
+        : found.estado_pago === 'pendiente' || found.estado_pago === 'saldo'
+        ? 'Cuota impaga'
+        : 'Membresía vencida';
+
       onLogAccess({
         member_id: found.id,
         dni: found.dni,
         member_name: `${found.nombre} ${found.apellido}`,
         disciplina: found.disciplina,
         autorizado: isAuthorized,
-        motivo: isAuthorized
-          ? found.estado_pago === 'parcial'
-            ? `Acceso Válido (Saldo pendiente: $${(found.saldo_pendiente || 0).toLocaleString('es-AR')})`
-            : 'Acceso Válido - Al Día'
-          : 'Denegado - Membresía vencida o impago',
+        motivo,
       });
-      setAccessLogged(true);
     } else {
       setMatchedMember(null);
       playWarningBeep();
@@ -89,7 +83,6 @@ export const QrScannerModal: React.FC<QrScannerModalProps> = ({
 
     if (isOpen && !scannedResult) {
       setCameraError(null);
-      setAccessLogged(false);
 
       const startScanner = async () => {
         try {
@@ -98,7 +91,7 @@ export const QrScannerModal: React.FC<QrScannerModalProps> = ({
 
           const config = {
             fps: 10,
-            qrbox: { width: 240, height: 240 },
+            qrbox: { width: 220, height: 220 },
             aspectRatio: 1.0,
           };
 
@@ -107,22 +100,27 @@ export const QrScannerModal: React.FC<QrScannerModalProps> = ({
             config,
             (decodedText) => {
               if (isMounted) {
-                html5QrCode.stop().then(() => {
-                  processQrToken(decodedText);
-                }).catch(() => {
-                  processQrToken(decodedText);
-                });
+                html5QrCode
+                  .stop()
+                  .then(() => {
+                    processQrToken(decodedText);
+                  })
+                  .catch(() => {
+                    processQrToken(decodedText);
+                  });
               }
             },
-            () => { }
+            () => {}
           );
 
           if (isMounted) {
             setIsScanning(true);
           }
-        } catch (err: any) {
+        } catch {
           if (isMounted) {
-            setCameraError('Permiso de cámara no disponible o en uso. Puedes ingresar el DNI manualmente.');
+            setCameraError(
+              'Cámara no disponible o sin permisos. Podés ingresar el DNI manualmente debajo.'
+            );
             setIsScanning(false);
           }
         }
@@ -136,14 +134,14 @@ export const QrScannerModal: React.FC<QrScannerModalProps> = ({
         isMounted = false;
         clearTimeout(timer);
         if (scannerRef.current && scannerRef.current.isScanning) {
-          scannerRef.current.stop().catch(() => { });
+          scannerRef.current.stop().catch(() => {});
         }
       };
     }
 
     return () => {
       if (scannerRef.current && scannerRef.current.isScanning) {
-        scannerRef.current.stop().catch(() => { });
+        scannerRef.current.stop().catch(() => {});
       }
     };
   }, [isOpen, scannedResult]);
@@ -151,21 +149,7 @@ export const QrScannerModal: React.FC<QrScannerModalProps> = ({
   const handleResetScan = () => {
     setScannedResult(null);
     setMatchedMember(null);
-    setAccessLogged(false);
     setManualCode('');
-  };
-
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    try {
-      const html5QrCode = new Html5Qrcode('file-scanner-temp');
-      const decodedText = await html5QrCode.scanFile(file, true);
-      processQrToken(decodedText);
-    } catch (err) {
-      alert('No se detectó un código QR válido en la imagen.');
-    }
   };
 
   const handleManualSearch = (e: React.FormEvent) => {
@@ -174,204 +158,173 @@ export const QrScannerModal: React.FC<QrScannerModalProps> = ({
     processQrToken(manualCode.trim());
   };
 
+  const handleClose = () => {
+    if (scannerRef.current && scannerRef.current.isScanning) {
+      scannerRef.current.stop().catch(() => {});
+    }
+    onClose();
+  };
+
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-[#0f172a]/80 backdrop-blur-sm">
-      <div className="min-h-full flex items-center justify-center p-2.5 sm:p-4">
-        <div className="bg-[#0f172a] border border-[#34d399] rounded-2xl w-full max-w-md overflow-hidden shadow-2xl relative my-auto flex flex-col max-h-[calc(100dvh-1.5rem)] sm:max-h-[90vh]">
-          {/* Header */}
-          <div className="flex items-center justify-between p-4 border-b border-[#34d399]/30 bg-[#0f172a] shrink-0">
-            <div className="flex items-center gap-2.5">
-              <div className="relative shrink-0">
-                <img src={isologo} alt="Acuva" className="w-8 h-8 object-contain" />
-                <div className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-[#34d399] text-[#0f172a] flex items-center justify-center border border-[#0f172a]">
-                  <Camera className="w-2.5 h-2.5 text-[#0f172a]" />
-                </div>
-              </div>
-              <div>
-                <h3 className="font-black text-sm text-white uppercase tracking-wider">Control de Acceso QR</h3>
-                <p className="text-[10px] text-slate-300 font-mono">Portería Acuva</p>
+    <Drawer
+      open={isOpen}
+      onClose={handleClose}
+      title="Control de acceso"
+      subtitle="Portería Acuva"
+    >
+      <div className="space-y-4">
+        {/* STATE 1: SCANNING */}
+        {!scannedResult && (
+          <div className="space-y-4">
+            {/* Vista de cámara (html5-qrcode) en caja rounded-[20px] con marco accent */}
+            <div className="relative rounded-[20px] overflow-hidden bg-carnet-ground aspect-square max-w-[280px] mx-auto border-2 border-accent flex flex-col items-center justify-center">
+              <div id={containerId} className="w-full h-full" />
+              <div className="absolute inset-4 pointer-events-none border border-accent/40 rounded-xl flex items-center justify-center">
+                <div className="w-10 h-0.5 bg-accent" />
               </div>
             </div>
-            <button
-              onClick={() => {
-                if (scannerRef.current && scannerRef.current.isScanning) {
-                  scannerRef.current.stop().catch(() => { });
-                }
-                onClose();
-              }}
-              className="text-slate-300 hover:text-white p-1 rounded hover:bg-[#1e293b] transition-colors"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
 
-          {/* Modal Content */}
-          <div className="p-4 sm:p-5 overflow-y-auto flex-1 min-h-0">
-            {/* STATE 1: SCANNING */}
-            {!scannedResult && (
-              <div className="space-y-3 sm:space-y-4">
-                {/* Camera Preview Area */}
-                <div className="relative rounded-xl overflow-hidden bg-[#0f172a] aspect-square max-w-[280px] mx-auto border-2 border-[#34d399] flex items-center justify-center">
-                  <div id={containerId} className="w-full h-full" />
-                  <div className="absolute inset-4 pointer-events-none border border-[#34d399]/40 rounded-lg flex items-center justify-center">
-                    <div className="w-8 h-0.5 bg-[#34d399]" />
-                  </div>
-                </div>
+            {/* Texto: Apuntá al QR del carnet del socio */}
+            <p className="text-xs text-text-muted text-center font-medium">
+              Apuntá al QR del carnet del socio
+            </p>
 
-                {cameraError && (
-                  <div className="bg-[#0f172a] border border-red-500/40 rounded-lg p-2.5 text-xs text-red-300">
-                    {cameraError}
-                  </div>
-                )}
-
-                {/* Manual search and Upload */}
-                <div className="bg-[#0f172a] p-3 rounded-xl border border-[#34d399]/40 space-y-2.5">
-                  <div className="flex items-center justify-between text-xs text-slate-300">
-                    <span className="font-mono text-[11px]">Validación Rápida:</span>
-                  </div>
-
-                  <form onSubmit={handleManualSearch} className="flex gap-1.5">
-                    <input
-                      type="text"
-                      value={manualCode}
-                      onChange={(e) => setManualCode(e.target.value)}
-                      placeholder="DNI o Código de carnet..."
-                      className="flex-1 bg-[#0f172a] border border-[#34d399] rounded-lg px-3 py-1.5 text-xs text-white placeholder-slate-400 focus:outline-none focus:border-[#34d399] font-mono"
-                    />
-                    <button
-                      type="submit"
-                      className="bg-[#34d399] hover:bg-[#34d399]/90 text-[#0f172a] text-xs font-black px-3 py-1.5 rounded-lg active:scale-95 shadow"
-                    >
-                      Validar
-                    </button>
-                  </form>
-                </div>
+            {cameraError && (
+              <div className="bg-status-warn-soft border border-status-warn-border text-status-warn rounded-xl p-3 text-xs flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{cameraError}</span>
               </div>
             )}
 
-            <div id="file-scanner-temp" className="hidden" />
+            {/* Fila de respaldo: Input admin mono "DNI o código de carnet" + Button primary "Validar" */}
+            <form onSubmit={handleManualSearch} className="flex items-center gap-2 pt-2">
+              <Input
+                variant="admin"
+                mono
+                value={manualCode}
+                onChange={(e) => setManualCode(e.target.value)}
+                placeholder="DNI o código de carnet"
+                className="flex-1"
+              />
+              <Button type="submit" variant="primary">
+                Validar
+              </Button>
+            </form>
+          </div>
+        )}
 
-            {/* STATE 2: SCAN RESULT INSPECTION */}
-            {scannedResult && (
-              <div className="space-y-3">
-                {matchedMember ? (
-                  (() => {
-                    const status = getCalculatedStatus(matchedMember.fecha_vencimiento, matchedMember.estado_pago);
-                    const isAuthorized = status.membershipStatus !== 'vencido' && (matchedMember.estado_pago === 'pagado' || matchedMember.estado_pago === 'parcial');
+        {/* STATE 2: SCAN RESULT INSPECTION */}
+        {scannedResult && (
+          <div className="space-y-4">
+            {matchedMember ? (
+              (() => {
+                const membership = getMembershipTone(matchedMember);
+                const isAuthorized =
+                  membership.status !== 'vencido' &&
+                  (matchedMember.estado_pago === 'pagado' ||
+                    matchedMember.estado_pago === 'parcial');
 
-                    return (
-                      <div className="space-y-3">
-                        {/* Authorization Header */}
-                        <div
-                          className={`rounded-xl p-4 border text-center ${isAuthorized
-                            ? 'bg-[#34d399] text-[#0f172a] border-[#34d399]'
-                            : 'bg-[#0f172a] text-red-400 border-red-500/60'
-                            }`}
-                        >
-                          <div className="text-2xl font-black uppercase tracking-wider font-mono">
-                            {isAuthorized ? 'ACCESO AUTORIZADO' : 'ACCESO DENEGADO'}
-                          </div>
-                          <p className={`text-xs mt-1 font-mono ${isAuthorized ? 'text-slate-900 font-bold' : 'text-slate-300'}`}>
-                            {isAuthorized
-                              ? matchedMember.estado_pago === 'parcial'
-                                ? `Membresía activa • Saldo pendiente: $${(matchedMember.saldo_pendiente || 0).toLocaleString('es-AR')}`
-                                : 'Membresía al día • Adelante'
-                              : (matchedMember.estado_pago === 'pendiente' || matchedMember.estado_pago === 'saldo')
-                                ? 'Cuota con saldo pendiente de pago'
-                                : 'Membresía mensual vencida'}
+                const toneType: 'ok' | 'danger' = isAuthorized ? 'ok' : 'danger';
+                const tone = TONE_CLASSES[toneType];
+
+                // Motivo text
+                let motivo = '';
+                if (isAuthorized) {
+                  if (
+                    matchedMember.estado_pago === 'parcial' &&
+                    (matchedMember.saldo_pendiente ?? 0) > 0
+                  ) {
+                    motivo = `Saldo pendiente ${formatMoney(matchedMember.saldo_pendiente ?? 0)}`;
+                  } else {
+                    motivo = 'Membresía al día';
+                  }
+                } else {
+                  if (
+                    matchedMember.estado_pago === 'pendiente' ||
+                    matchedMember.estado_pago === 'saldo'
+                  ) {
+                    motivo = 'Cuota impaga';
+                  } else {
+                    motivo = 'Membresía vencida';
+                  }
+                }
+
+                return (
+                  <div className="space-y-4">
+                    {/* Tarjeta grande con borde y fondo suave del tono, avatar, nombre, disciplina, "Autorizado" (ok) o "Denegado" (danger) con el motivo */}
+                    <div
+                      className={`p-5 rounded-[20px] border ${tone.bg} ${tone.border} space-y-4 select-none`}
+                    >
+                      <div className="flex items-center gap-3.5">
+                        <MemberAvatar
+                          src={matchedMember.foto_url}
+                          name={`${matchedMember.nombre} ${matchedMember.apellido}`}
+                          className="w-14 h-14 text-base shrink-0"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <h4 className="text-lg font-bold text-text-primary leading-tight truncate">
+                            {matchedMember.nombre} {matchedMember.apellido}
+                          </h4>
+                          <p className="text-xs text-text-muted truncate mt-0.5 capitalize">
+                            {matchedMember.disciplina} ·{' '}
+                            <span className="font-mono text-text-secondary">
+                              {matchedMember.dni}
+                            </span>
                           </p>
                         </div>
+                      </div>
 
-                        {/* Member Info Card */}
-                        <div className="bg-[#0f172a] border border-[#34d399]/40 rounded-xl p-3.5 space-y-2.5">
-                          <div className="flex items-center gap-3">
-                            <MemberAvatar
-                              src={matchedMember.foto_url}
-                              name={`${matchedMember.nombre} ${matchedMember.apellido}`}
-                              className="w-12 h-12 rounded-lg"
-                            />
-                            <div>
-                              <h4 className="font-black text-sm text-white">
-                                {matchedMember.nombre} {matchedMember.apellido}
-                              </h4>
-                              <div className="flex items-center gap-2 mt-0.5 text-xs text-slate-300 font-mono">
-                                <span>DNI: {matchedMember.dni}</span>
-                                <span>•</span>
-                                <span>{matchedMember.disciplina}</span>
-                              </div>
-                            </div>
-                          </div>
-
-                          <div className="grid grid-cols-2 gap-2 text-xs font-mono pt-2 border-t border-[#34d399]/20">
-                            <div>
-                              <span className="text-[10px] text-slate-400 uppercase block">Vencimiento</span>
-                              <span className="text-white font-bold">
-                                {formatDisplayDate(matchedMember.fecha_vencimiento)}
-                              </span>
-                            </div>
-                            <div>
-                              <span className="text-[10px] text-slate-400 uppercase block">Días Restantes</span>
-                              <span className={`font-bold ${status.daysRemaining < 0 ? 'text-red-400' : 'text-[#34d399]'}`}>
-                                {status.daysRemaining < 0
-                                  ? `${Math.abs(status.daysRemaining)}d vencido`
-                                  : `${status.daysRemaining} días`}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Actions */}
-                        <div className="space-y-1.5 pt-1">
-                          {!isAuthorized && (
-                            <button
-                              type="button"
-                              onClick={async () => {
-                                await onRenewMember(matchedMember.id);
-                                handleResetScan();
-                              }}
-                              className="w-full py-2.5 px-4 bg-[#34d399] hover:bg-[#34d399]/90 active:scale-95 text-[#0f172a] font-black text-xs uppercase tracking-wider rounded-lg transition-all flex items-center justify-center gap-2 shadow-lg"
-                            >
-                              <CreditCard className="w-4 h-4" />
-                              Cobrar y Renovar Mes Ahora
-                            </button>
-                          )}
-
-                          <button
-                            type="button"
-                            onClick={handleResetScan}
-                            className="w-full py-2.5 px-4 bg-[#0f172a] hover:bg-[#1e293b] active:scale-95 text-white text-xs font-bold rounded-lg border border-[#34d399] flex items-center justify-center gap-2"
+                      <div className="pt-3 border-t border-border-subtle flex items-center justify-between">
+                        <div>
+                          <span
+                            className={`text-2xl font-bold font-mono tracking-wide ${tone.text}`}
                           >
-                            <RefreshCw className="w-3.5 h-3.5 text-[#34d399]" />
-                            Escanear Siguiente Socio
-                          </button>
+                            {isAuthorized ? 'Autorizado' : 'Denegado'}
+                          </span>
+                          <span className="text-xs text-text-muted block mt-0.5">
+                            {motivo}
+                          </span>
                         </div>
                       </div>
-                    );
-                  })()
-                ) : (
-                  /* Unmatched */
-                  <div className="text-center py-6 space-y-3">
-                    <div className="text-base font-black text-white font-mono">CÓDIGO NO ENCONTRADO</div>
-                    <p className="text-xs text-slate-300 font-mono break-all px-4">
-                      "{scannedResult}"
-                    </p>
-                    <button
-                      type="button"
+                    </div>
+
+                    {/* Button "Escanear siguiente" */}
+                    <Button
+                      variant="primary"
+                      size="lg"
+                      icon={ScanLine}
                       onClick={handleResetScan}
-                      className="py-2 px-4 bg-[#34d399] hover:bg-[#34d399]/90 text-[#0f172a] text-xs font-black rounded-lg inline-flex items-center gap-1.5 shadow"
+                      className="w-full"
                     >
-                      <RefreshCw className="w-3.5 h-3.5" />
-                      Reintentar
-                    </button>
+                      Escanear siguiente
+                    </Button>
                   </div>
-                )}
+                );
+              })()
+            ) : (
+              /* Código inexistente: "Código no encontrado" con Button "Reintentar" */
+              <div className="text-center py-8 space-y-4 bg-surface-100 rounded-[20px] border border-border-subtle p-5">
+                <div className="text-lg font-bold text-text-primary font-mono">
+                  Código no encontrado
+                </div>
+                <p className="text-xs text-text-muted font-mono break-all px-2">
+                  "{scannedResult}"
+                </p>
+                <Button
+                  variant="primary"
+                  icon={RefreshCw}
+                  onClick={handleResetScan}
+                  className="mx-auto"
+                >
+                  Reintentar
+                </Button>
               </div>
             )}
           </div>
-        </div>
+        )}
       </div>
-    </div>
+    </Drawer>
   );
 };

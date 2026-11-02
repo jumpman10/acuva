@@ -9,6 +9,7 @@ export interface AdminMemberCardProps {
   onRenewClick: (member: Member) => void;
   onOpenCardModal: (member: Member) => void;
   onOpenEditMember: (member: Member) => void;
+  onSelectMember?: (member: Member) => void;
   onDeleteClick?: (member: Member) => void;
 }
 
@@ -17,12 +18,13 @@ export const AdminMemberCard: React.FC<AdminMemberCardProps> = ({
   onRenewClick,
   onOpenCardModal,
   onOpenEditMember,
+  onSelectMember,
 }) => {
   const membership = getMembershipTone(member);
 
   return (
     <Card
-      onClick={() => onOpenEditMember(member)}
+      onClick={() => (onSelectMember ? onSelectMember(member) : onOpenEditMember(member))}
       className="p-3.5 space-y-3 cursor-pointer hover:border-border-default transition-colors select-none"
     >
       {/* Fila principal: Avatar 46px + Nombre + "Disciplina · vence 23 nov" + StatusBadge a la derecha */}
