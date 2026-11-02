@@ -1,21 +1,10 @@
 import React, { useState } from 'react';
 import { Member, AccessLog } from '../types';
 import { VirtualCard } from './VirtualCard';
-import { MemberAvatar } from './MemberAvatar';
-import { getCalculatedStatus, formatDisplayDate } from '../lib/dateUtils';
+import { getMembershipTone, formatMoney } from '../lib/status';
+import { Button, Input, Field, Alert, Card } from './ui';
 import isologo from '../assets/isologo.png';
-import magoLogo from '../assets/mago-logo.png';
-import {
-  Key,
-  LogIn,
-  LogOut,
-  MessageCircle,
-  History,
-  Shield,
-  Clock,
-  Dumbbell,
-  Lock
-} from 'lucide-react';
+import { LogIn } from 'lucide-react';
 
 interface MemberPortalProps {
   members: Member[];
@@ -25,10 +14,32 @@ interface MemberPortalProps {
   onSetUserDni: (dni: string | null) => void;
 }
 
+function formatAccessDate(timestamp: string): string {
+  const date = new Date(timestamp);
+  if (isNaN(date.getTime())) return timestamp;
+  const now = new Date();
+  const isToday =
+    date.getFullYear() === now.getFullYear() &&
+    date.getMonth() === now.getMonth() &&
+    date.getDate() === now.getDate();
+
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  const timeStr = `${hours}:${minutes}`;
+
+  if (isToday) {
+    return `Hoy · ${timeStr}`;
+  }
+
+  const day = date.getDate();
+  const month = date.toLocaleDateString('es-AR', { month: 'short' }).replace('.', '').toLowerCase();
+  return `${day} ${month} · ${timeStr}`;
+}
+
 export const MemberPortal: React.FC<MemberPortalProps> = ({
   members,
   accessLogs,
-  onNavigateToAdmin,
+  onNavigateToAdmin: _onNavigateToAdmin,
   currentUserDni,
   onSetUserDni,
 }) => {
@@ -44,165 +55,162 @@ export const MemberPortal: React.FC<MemberPortalProps> = ({
     const trimmedDni = dniInput.trim();
     const trimmedPass = passwordInput.trim();
 
+    if (!trimmedDni) {
+      setErrorMsg('No encontramos un socio con ese DNI. Revisá el número o consultá en recepción.');
+      return;
+    }
+
     const member = members.find((m) => m.dni === trimmedDni);
     if (!member) {
-      setErrorMsg('No encontramos ningún socio registrado con este DNI.');
+      setErrorMsg('No encontramos un socio con ese DNI. Revisá el número o consultá en recepción.');
       return;
     }
 
     if (trimmedPass && trimmedPass !== trimmedDni) {
-      setErrorMsg('Contraseña incorrecta. Recuerda que tu contraseña es tu número de DNI.');
+      setErrorMsg('La contraseña no coincide. Recordá que es tu número de DNI.');
       return;
     }
 
     onSetUserDni(member.dni);
   };
 
-  // Login view - Mobile First, Black and White Minimal
+  // Sin sesión (login)
   if (!currentMember) {
     return (
-      <div className="w-full max-w-sm mx-auto py-4 sm:py-8 px-2 sm:px-4">
-        <div className="bg-[#0f172a] border border-[#34d399] rounded-2xl p-5 sm:p-6 shadow-2xl">
-          {/* Logo */}
-          <div className="text-center mb-6">
-            <img
-              src={isologo}
-              alt="Acuva"
-              className="w-14 h-14 mx-auto mb-2.5 object-contain drop-shadow-[0_4px_16px_rgba(52,211,153,0.3)]"
-            />
-            <img
-              src={magoLogo}
-              alt="Acuva Gym"
-              className="h-7 mx-auto object-contain mb-1"
-            />
-            <p className="text-[11px] text-slate-300 font-mono mt-0.5">Acceso de Socios • Carnet Digital</p>
-          </div>
-
-          {/* DNI as Password Info Box */}
-          <div className="bg-[#0f172a] border border-[#34d399]/40 rounded-xl p-3 mb-5 text-xs text-white flex items-start gap-2">
-            <Key className="w-4 h-4 text-[#34d399] shrink-0 mt-0.5" />
-            <div>
-              <span className="font-bold text-white uppercase text-[10px] font-mono">
-                Clave de acceso:
-              </span>
-              <p className="text-slate-300 text-[11px] mt-0.5">
-                Ingresa con tu DNI. Tu contraseña es automáticamente tu mismo número de DNI.
-              </p>
-            </div>
-          </div>
-
-          {errorMsg && (
-            <div className="mb-4 p-2.5 rounded-lg bg-[#0f172a] border border-red-500/50 text-red-400 text-xs font-mono">
-              {errorMsg}
-            </div>
-          )}
-
-          {/* Form */}
-          <form onSubmit={handleLogin} className="space-y-3.5">
-            <div>
-              <label className="block text-[10px] font-bold text-white uppercase font-mono mb-1">
-                Número de DNI
-              </label>
-              <input
-                type="text"
-                required
-                value={dniInput}
-                onChange={(e) => setDniInput(e.target.value)}
-                placeholder="43928104"
-                className="w-full bg-[#0f172a] border border-[#34d399] rounded-lg px-3.5 py-2.5 text-xs text-white placeholder-slate-400 focus:outline-none focus:border-[#34d399] font-mono"
-              />
-            </div>
-
-            <div>
-              <label className="block text-[10px] font-bold text-white uppercase font-mono mb-1 flex items-center justify-between">
-                <span>Contraseña</span>
-                <span className="text-[9px] text-slate-400">(Tu DNI)</span>
-              </label>
-              <input
-                type="password"
-                value={passwordInput}
-                onChange={(e) => setPasswordInput(e.target.value)}
-                placeholder="Repite tu DNI"
-                className="w-full bg-[#0f172a] border border-[#34d399] rounded-lg px-3.5 py-2.5 text-xs text-white placeholder-slate-400 focus:outline-none focus:border-[#34d399] font-mono"
-              />
-            </div>
-
-            <button
-              type="submit"
-              className="w-full py-3 px-4 bg-[#34d399] hover:bg-[#34d399]/90 active:scale-95 text-[#0f172a] font-black text-xs uppercase tracking-wider rounded-lg transition-all flex items-center justify-center gap-2 mt-2 shadow-lg"
-            >
-              <LogIn className="w-4 h-4 stroke-[2.5]" />
-              Ver Mi Carnet Virtual
-            </button>
-          </form>
+      <div className="w-full max-w-[440px] mx-auto px-[18px] pt-7 pb-10 flex flex-col gap-[18px]">
+        {/* Cabecera */}
+        <div className="flex flex-col gap-2">
+          <img
+            src={isologo}
+            alt="Acuva"
+            className="w-[60px] h-[60px] object-contain mb-1"
+          />
+          <h1 className="text-[28px] font-extrabold tracking-[-0.02em] text-text-primary leading-tight">
+            Tu carnet digital
+          </h1>
+          <p className="text-[15px] text-text-muted leading-relaxed">
+            Ingresá con tu DNI para ver tu QR de acceso y tus últimos ingresos.
+          </p>
         </div>
+
+        {/* Error Alert */}
+        {errorMsg && <Alert>{errorMsg}</Alert>}
+
+        {/* Formulario */}
+        <form onSubmit={handleLogin} className="flex flex-col gap-[18px]">
+          <Field label="Número de DNI" htmlFor="dni-input">
+            <Input
+              id="dni-input"
+              variant="portal"
+              mono
+              inputMode="numeric"
+              placeholder="43928104"
+              value={dniInput}
+              onChange={(e) => setDniInput(e.target.value)}
+              required
+            />
+          </Field>
+
+          <Field
+            label="Contraseña"
+            hint="Es tu mismo DNI"
+            htmlFor="password-input"
+          >
+            <Input
+              id="password-input"
+              variant="portal"
+              type="password"
+              placeholder="Repetí tu DNI"
+              value={passwordInput}
+              onChange={(e) => setPasswordInput(e.target.value)}
+            />
+          </Field>
+
+          <Button
+            type="submit"
+            variant="primary"
+            size="lg"
+            icon={LogIn}
+            className="w-full h-[54px]"
+          >
+            Ver mi carnet
+          </Button>
+        </form>
+
+        {/* Pie */}
+        <footer className="flex items-center justify-center gap-2 text-xs text-text-faint text-center pt-2">
+          <img src={isologo} alt="" className="w-3.5 h-3.5 object-contain" />
+          <span>© 2026 Acuva · Sistema de gestión y carnets QR</span>
+        </footer>
       </div>
     );
   }
 
-  // Logged-in member view
-  const myAccessLogs = accessLogs.filter((log) => log.dni === currentMember.dni).slice(0, 5);
+  // Con sesión
+  const tone = getMembershipTone(currentMember);
+  const myAccessLogs = accessLogs
+    .filter((log) => log.dni === currentMember.dni)
+    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+    .slice(0, 5);
 
   return (
-    <div className="w-full max-w-md mx-auto py-2 sm:py-6 space-y-4">
-      {/* Top bar */}
-      <div className="flex items-center justify-between bg-[#0f172a] p-3 rounded-xl border border-[#34d399]">
-        <div className="flex items-center gap-2.5">
-          <MemberAvatar
-            src={currentMember.foto_url}
-            name={`${currentMember.nombre} ${currentMember.apellido}`}
-            className="w-9 h-9 rounded-lg"
-          />
-          <div>
-            <h3 className="text-xs sm:text-sm font-black text-white leading-tight">
-              {currentMember.nombre} {currentMember.apellido}
-            </h3>
-            <p className="text-[10px] text-slate-300 font-mono">
-              {currentMember.disciplina} • DNI: {currentMember.dni}
-              {currentMember.fecha_nacimiento && ` • Nac: ${formatDisplayDate(currentMember.fecha_nacimiento)}`}
-            </p>
-          </div>
-        </div>
-
-        <button
-          onClick={() => onSetUserDni(null)}
-          className="px-2.5 py-1 text-xs text-white bg-[#0f172a] hover:bg-[#1e293b] rounded-lg border border-[#34d399]/40 flex items-center gap-1 font-mono"
-        >
-          <LogOut className="w-3 h-3" />
-          Salir
-        </button>
+    <div className="w-full max-w-[440px] mx-auto px-[18px] pt-7 pb-10 flex flex-col gap-[18px]">
+      {/* Saludo */}
+      <div>
+        <p className="text-sm text-text-muted">Hola,</p>
+        <h1 className="text-[26px] font-extrabold text-text-primary leading-tight">
+          {currentMember.nombre}
+        </h1>
       </div>
 
-      {/* Virtual Card */}
-      <VirtualCard member={currentMember} />
-      {/* Recent access history */}
-      {myAccessLogs.length > 0 && (
-        <div className="bg-[#0f172a] border border-[#34d399] rounded-xl p-4">
-          <h4 className="text-xs font-bold text-white uppercase font-mono mb-2 flex items-center gap-1.5">
-            <History className="w-3.5 h-3.5 text-[#34d399]" />
-            Últimos Ingresos Registrados
-          </h4>
+      {/* Aviso de saldo pendiente */}
+      {tone.debt ? (
+        <div
+          role="status"
+          className="bg-status-warn-soft text-status-warn border border-status-warn-border rounded-xl px-4 py-3 text-sm font-medium leading-snug"
+        >
+          Tenés un saldo pendiente de {formatMoney(tone.debt)}. Acercate a recepción para saldarlo.
+        </div>
+      ) : null}
 
-          <div className="space-y-1.5">
+      {/* Carnet virtual */}
+      <VirtualCard member={currentMember} />
+
+      {/* Últimos ingresos */}
+      <Card className="bg-surface-portal">
+        <h3 className="text-lg font-bold text-text-primary pb-1">Últimos ingresos</h3>
+        {myAccessLogs.length === 0 ? (
+          <p className="border-t border-border-subtle pt-3 text-sm text-text-muted">
+            Todavía no registraste ingresos.
+          </p>
+        ) : (
+          <div>
             {myAccessLogs.map((log) => (
               <div
                 key={log.id}
-                className="flex items-center justify-between p-2 bg-[#0f172a] rounded-lg border border-[#34d399]/30 text-[11px] font-mono"
+                className="flex items-center justify-between border-t border-border-subtle py-3 text-sm"
               >
-                <span className="text-slate-300">
-                  {new Date(log.timestamp).toLocaleDateString('es-ES', {
-                    day: 'numeric',
-                    month: 'short',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })}
+                <span className="text-text-secondary">{formatAccessDate(log.timestamp)}</span>
+                <span
+                  className={
+                    log.autorizado
+                      ? 'text-status-ok font-semibold'
+                      : 'text-status-danger font-semibold'
+                  }
+                >
+                  {log.autorizado ? 'Ingreso' : 'Denegado'}
                 </span>
-                <span className="text-white font-bold">{log.disciplina}</span>
               </div>
             ))}
           </div>
-        </div>
-      )}
+        )}
+      </Card>
+
+      {/* Pie */}
+      <footer className="flex items-center justify-center gap-2 text-xs text-text-faint text-center pt-2">
+        <img src={isologo} alt="" className="w-3.5 h-3.5 object-contain" />
+        <span>© 2026 Acuva · Sistema de gestión y carnets QR</span>
+      </footer>
     </div>
   );
 };
