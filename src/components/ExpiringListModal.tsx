@@ -102,7 +102,7 @@ export const ExpiringListModal: React.FC<ExpiringListModalProps> = ({
                 Vencen en ≤ 2 días
               </h3>
             </div>
-            <span className="text-xs font-mono font-bold text-status-warn">
+            <span className="text-xs font-bold text-status-warn">
               {expiringSoon.length}
             </span>
           </div>
@@ -127,7 +127,7 @@ export const ExpiringListModal: React.FC<ExpiringListModalProps> = ({
                 Vencidos o impagos
               </h3>
             </div>
-            <span className="text-xs font-mono font-bold text-status-danger">
+            <span className="text-xs font-bold text-status-danger">
               {expiredOrUnpaid.length}
             </span>
           </div>

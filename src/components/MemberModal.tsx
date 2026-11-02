@@ -336,7 +336,6 @@ export const MemberModal: React.FC<MemberModalProps> = ({
             <Field label="Fecha de nacimiento">
               <Input
                 variant="admin"
-                mono
                 type="date"
                 value={fechaNacimiento}
                 onChange={(e) => setFechaNacimiento(e.target.value)}
@@ -348,7 +347,7 @@ export const MemberModal: React.FC<MemberModalProps> = ({
                 <select
                   value={disciplina}
                   onChange={(e) => handleDisciplineChange(e.target.value)}
-                  className="w-full h-11 bg-surface-sunken border border-border-default rounded-xl px-3.5 text-sm text-text-primary focus:border-accent focus:outline-none appearance-none cursor-pointer transition-colors"
+                  className="w-full h-11 bg-surface-sunken border border-border-default rounded-xl px-3.5 text-sm text-text-primary focus:border-accent focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent appearance-none cursor-pointer transition-colors"
                 >
                   {disciplines.map((d) => (
                     <option key={d.id} value={d.nombre} className="bg-surface-100 text-text-primary">
@@ -365,7 +364,6 @@ export const MemberModal: React.FC<MemberModalProps> = ({
             <Field label="Cuota mensual ($)">
               <Input
                 variant="admin"
-                mono
                 type="number"
                 min="0"
                 step="500"
@@ -377,7 +375,6 @@ export const MemberModal: React.FC<MemberModalProps> = ({
             <Field label="Fecha de ingreso">
               <Input
                 variant="admin"
-                mono
                 type="date"
                 value={fechaIngreso}
                 onChange={(e) => handleIngresoChange(e.target.value)}
@@ -387,7 +384,6 @@ export const MemberModal: React.FC<MemberModalProps> = ({
             <Field label="Vencimiento inicial">
               <Input
                 variant="admin"
-                mono
                 type="date"
                 value={fechaVencimiento}
                 onChange={(e) => setFechaVencimiento(e.target.value)}
@@ -400,7 +396,7 @@ export const MemberModal: React.FC<MemberModalProps> = ({
                   value={metodoPago}
                   onChange={(e) => setMetodoPago(e.target.value as PaymentMethod)}
                   disabled={estadoPago === 'saldo' || estadoPago === 'pendiente'}
-                  className="w-full h-11 bg-surface-sunken border border-border-default rounded-xl px-3.5 text-sm text-text-primary focus:border-accent focus:outline-none appearance-none cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="w-full h-11 bg-surface-sunken border border-border-default rounded-xl px-3.5 text-sm text-text-primary focus:border-accent focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent appearance-none cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {PAYMENT_METHODS.map((method) => (
                     <option key={method} value={method} className="bg-surface-100 text-text-primary">
@@ -424,7 +420,7 @@ export const MemberModal: React.FC<MemberModalProps> = ({
               <button
                 type="button"
                 onClick={() => setEstadoPago('pagado')}
-                className={`py-2 px-2 rounded-xl text-xs font-bold border transition-all text-center cursor-pointer ${
+                className={`py-2 px-2 rounded-xl text-xs font-bold border transition-all text-center cursor-pointer focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent ${
                   estadoPago === 'pagado'
                     ? 'border-accent bg-accent-soft text-accent'
                     : 'border-border-default bg-surface-100 text-text-secondary hover:text-text-primary'
@@ -435,7 +431,7 @@ export const MemberModal: React.FC<MemberModalProps> = ({
               <button
                 type="button"
                 onClick={() => setEstadoPago('parcial')}
-                className={`py-2 px-2 rounded-xl text-xs font-bold border transition-all text-center cursor-pointer ${
+                className={`py-2 px-2 rounded-xl text-xs font-bold border transition-all text-center cursor-pointer focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent ${
                   estadoPago === 'parcial'
                     ? 'border-status-warn bg-status-warn-soft text-status-warn'
                     : 'border-border-default bg-surface-100 text-text-secondary hover:text-text-primary'
@@ -449,7 +445,7 @@ export const MemberModal: React.FC<MemberModalProps> = ({
                   setEstadoPago('saldo');
                   if (!saldoPendiente) setSaldoPendiente(montoMensual);
                 }}
-                className={`py-2 px-2 rounded-xl text-xs font-bold border transition-all text-center cursor-pointer ${
+                className={`py-2 px-2 rounded-xl text-xs font-bold border transition-all text-center cursor-pointer focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent ${
                   estadoPago === 'saldo' || estadoPago === 'pendiente'
                     ? 'border-status-danger bg-status-danger-soft text-status-danger'
                     : 'border-border-default bg-surface-100 text-text-secondary hover:text-text-primary'
@@ -467,7 +463,6 @@ export const MemberModal: React.FC<MemberModalProps> = ({
                 <div className="w-36">
                   <Input
                     variant="admin"
-                    mono
                     type="number"
                     min="0"
                     step="100"

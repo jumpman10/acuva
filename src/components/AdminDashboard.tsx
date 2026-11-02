@@ -436,7 +436,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <span className="text-[13px] font-semibold text-text-muted">
                 Ingresos hoy
               </span>
-              <div className="text-[26px] sm:text-[30px] font-extrabold text-text-primary font-mono mt-2 leading-none">
+              <div className="text-[26px] sm:text-[30px] font-extrabold text-text-primary mt-2 leading-none">
                 {totalToday}
               </div>
             </Card>
@@ -445,7 +445,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <span className="text-[13px] font-semibold text-text-muted">
                 Autorizados
               </span>
-              <div className="text-[26px] sm:text-[30px] font-extrabold text-status-ok font-mono mt-2 leading-none">
+              <div className="text-[26px] sm:text-[30px] font-extrabold text-status-ok mt-2 leading-none">
                 {authorizedToday}
               </div>
             </Card>
@@ -454,7 +454,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <span className="text-[13px] font-semibold text-text-muted">
                 Denegados
               </span>
-              <div className="text-[26px] sm:text-[30px] font-extrabold text-status-danger font-mono mt-2 leading-none">
+              <div className="text-[26px] sm:text-[30px] font-extrabold text-status-danger mt-2 leading-none">
                 {deniedToday}
               </div>
             </Card>
@@ -462,7 +462,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
           {/* Header row with Excel export */}
           <div className="flex items-center justify-between px-1">
-            <span className="text-xs text-text-muted font-mono">
+            <span className="text-xs text-text-muted">
               {accessLogs.length} accesos registrados
             </span>
             <Button
@@ -488,7 +488,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <h3 className="text-sm font-bold text-text-primary">
                       {group.label}
                     </h3>
-                    <span className="text-xs text-text-muted font-mono">
+                    <span className="text-xs text-text-muted">
                       {group.logs.length}{' '}
                       {group.logs.length === 1 ? 'ingreso' : 'ingresos'}
                     </span>
@@ -517,9 +517,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           </div>
                         </div>
 
-                        {/* Hora mono y StatusBadge con icono Check "Autorizado" (ok) o X "Denegado" (danger) */}
+                        {/* Hora y StatusBadge con icono Check "Autorizado" (ok) o X "Denegado" (danger) */}
                         <div className="flex items-center gap-3 shrink-0">
-                          <span className="font-mono text-xs text-text-muted">
+                          <span className="text-xs text-text-muted">
                             {new Date(log.timestamp).toLocaleTimeString('es-AR', {
                               hour: '2-digit',
                               minute: '2-digit',
@@ -565,7 +565,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <span className="text-[13px] font-semibold text-text-muted">
                   Recaudado · últimos 30 días
                 </span>
-                <div className="text-[32px] sm:text-[36px] font-extrabold text-text-primary font-mono mt-1 leading-tight">
+                <div className="text-[32px] sm:text-[36px] font-extrabold text-text-primary mt-1 leading-tight">
                   {formatMoney(paymentStats.totalRecaudado)}
                 </div>
               </div>
@@ -583,7 +583,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
             {/* Desglose "Por método" (Efectivo, Transferencia, Débito, Crédito, Pago QR) */}
             <div className="pt-3 border-t border-border-subtle space-y-2.5">
-              <span className="text-xs font-semibold text-text-muted uppercase tracking-wider block">
+              <span className="text-xs font-semibold text-text-muted block">
                 Por método
               </span>
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
@@ -602,11 +602,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           <span className="text-text-secondary font-medium">
                             {method}
                           </span>
-                          <span className="font-mono text-text-muted text-[11px]">
+                          <span className="text-text-muted text-[11px]">
                             {Math.round(pct)}%
                           </span>
                         </div>
-                        <div className="text-sm font-bold font-mono text-text-primary">
+                        <div className="text-sm font-bold text-text-primary">
                           {formatMoney(amount)}
                         </div>
                         <div className="w-full h-1.5 rounded-full bg-surface-hover overflow-hidden mt-1">
@@ -629,7 +629,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <h3 className="text-sm font-bold text-text-primary">
                 Cobros y renovaciones
               </h3>
-              <span className="text-xs text-text-muted font-mono">
+              <span className="text-xs text-text-muted">
                 {paymentLogs.length} registros
               </span>
             </div>
@@ -666,7 +666,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           <div className="flex items-center gap-2 text-xs text-text-muted mt-0.5 flex-wrap">
                             <span>{formatShortDate(pay.fecha)}</span>
                             <span>·</span>
-                            <span className="font-mono text-text-secondary">
+                            <span className="text-text-secondary">
                               {formatShortDate(pay.periodo_inicio)} →{' '}
                               {formatShortDate(pay.periodo_fin)}
                             </span>
@@ -684,7 +684,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         <span className="text-xs font-medium text-text-muted bg-surface-200 px-2.5 py-1 rounded-md border border-border-subtle">
                           {methodStr}
                         </span>
-                        <span className="text-sm sm:text-base font-bold font-mono text-text-primary">
+                        <span className="text-sm sm:text-base font-bold text-text-primary">
                           {formatMoney(pay.monto)}
                         </span>
                       </div>

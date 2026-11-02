@@ -61,7 +61,7 @@ export const VirtualCard: React.FC<VirtualCardProps> = ({
       const exportOptions = {
         quality: 0.95,
         pixelRatio: 2,
-        backgroundColor: '#0b111e',
+        backgroundColor: '#0b111e', // carnet-ground hex for canvas / html-to-image export
         cacheBust: !isFileProtocol,
       };
 
@@ -234,7 +234,7 @@ export const VirtualCard: React.FC<VirtualCardProps> = ({
         </div>
 
         {/* 7. Pie */}
-        <p className="text-[11px] uppercase tracking-[0.14em] text-text-faint text-center">
+        <p className="text-xs text-text-faint text-center">
           Mostrá este QR en portería
         </p>
       </div>

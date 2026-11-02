@@ -131,12 +131,12 @@ export const SupabaseConfigModal: React.FC<SupabaseConfigModalProps> = ({
         <Field label="Project URL">
           <Input
             variant="admin"
-            mono
             type="url"
             required
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             placeholder="https://xyz.supabase.co"
+            className="focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
           />
         </Field>
 
@@ -147,7 +147,7 @@ export const SupabaseConfigModal: React.FC<SupabaseConfigModalProps> = ({
             value={anonKey}
             onChange={(e) => setAnonKey(e.target.value)}
             placeholder="eyJhbGciOiJIUzI1NiIsIn..."
-            className="w-full bg-surface-sunken border border-border-default rounded-xl px-3.5 py-2.5 text-xs text-text-primary placeholder:text-text-faint font-mono focus:border-accent focus:outline-none transition-colors"
+            className="w-full bg-surface-sunken border border-border-default rounded-xl px-3.5 py-2.5 text-xs text-text-primary placeholder:text-text-faint font-mono focus:border-accent focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent transition-colors"
           />
         </Field>
 

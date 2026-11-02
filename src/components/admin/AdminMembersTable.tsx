@@ -68,8 +68,17 @@ export const AdminMembersTable: React.FC<AdminMembersTableProps> = ({
                 return (
                   <tr
                     key={member.id}
+                    tabIndex={0}
+                    role="button"
                     onClick={() => (onSelectMember ? onSelectMember(member) : onOpenEditMember(member))}
-                    className="border-t border-border-subtle hover:bg-surface-200 transition-colors cursor-pointer"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        if (onSelectMember) onSelectMember(member);
+                        else onOpenEditMember(member);
+                      }
+                    }}
+                    className="border-t border-border-subtle hover:bg-surface-200 transition-colors cursor-pointer focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-[-2px]"
                   >
                     {/* Socio: MemberAvatar 40px + nombre font-bold + DNI mono text-text-muted */}
                     <td className="py-3 pl-4 pr-3">
@@ -99,7 +108,7 @@ export const AdminMembersTable: React.FC<AdminMembersTableProps> = ({
 
                     {/* Vencimiento: formatDate */}
                     <td className="py-3 px-3">
-                      <span className="font-mono text-xs text-text-primary">
+                      <span className="text-xs text-text-primary">
                         {formatDate(member.fecha_vencimiento)}
                       </span>
                     </td>
@@ -161,7 +170,7 @@ export const AdminMembersTable: React.FC<AdminMembersTableProps> = ({
                           title="WhatsApp"
                           aria-label="WhatsApp"
                           onClick={(e) => e.stopPropagation()}
-                          className="inline-flex items-center justify-center w-9 h-9 min-w-[36px] min-h-[36px] rounded-[10px] text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors cursor-pointer"
+                          className="inline-flex items-center justify-center w-9 h-9 min-w-[36px] min-h-[36px] rounded-[10px] text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors cursor-pointer focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
                         >
                           <MessageCircle size={17} strokeWidth={2} />
                         </a>

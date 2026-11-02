@@ -80,9 +80,23 @@ export const AdminMetrics: React.FC<AdminMetricsProps> = ({
         return (
           <Card
             key={m.id}
+            tabIndex={m.onClick ? 0 : undefined}
+            role={m.onClick ? 'button' : undefined}
             onClick={m.onClick}
+            onKeyDown={
+              m.onClick
+                ? (e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      m.onClick?.();
+                    }
+                  }
+                : undefined
+            }
             className={`flex flex-col justify-between p-3.5 sm:p-[18px] ${
-              m.onClick ? 'cursor-pointer hover:border-border-default transition-colors' : ''
+              m.onClick
+                ? 'cursor-pointer hover:border-border-default transition-colors focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent'
+                : ''
             }`}
           >
             <div className="flex items-center justify-between gap-2">
@@ -97,7 +111,7 @@ export const AdminMetrics: React.FC<AdminMetricsProps> = ({
             </div>
 
             <div className="mt-2">
-              <div className="text-[30px] font-extrabold text-text-primary font-mono tracking-tight leading-none">
+              <div className="text-[30px] font-extrabold text-text-primary tracking-tight leading-none">
                 {m.value}
               </div>
 

@@ -53,15 +53,15 @@ export const AdminFiltersBar: React.FC<AdminFiltersBarProps> = ({
               key={chip.id}
               type="button"
               onClick={() => onStatusFilterChange(chip.id)}
-              className={`px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-colors cursor-pointer flex items-center gap-1.5 ${
+              className={`px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-colors cursor-pointer flex items-center gap-1.5 focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent ${
                 isActive
-                  ? 'bg-accent text-ink-on-accent font-bold shadow-sm'
+                  ? 'bg-accent text-ink-on-accent font-bold'
                   : 'border border-border-default text-text-secondary hover:text-text-primary hover:bg-surface-hover'
               }`}
             >
               <span>{chip.label}</span>
               <span
-                className={`font-mono text-[11px] ${
+                className={`text-[11px] ${
                   isActive ? 'text-ink-on-accent/80' : 'text-text-muted'
                 }`}
               >
@@ -94,7 +94,7 @@ export const AdminFiltersBar: React.FC<AdminFiltersBarProps> = ({
           <select
             value={disciplineFilter}
             onChange={(e) => onDisciplineFilterChange(e.target.value)}
-            className="h-11 bg-surface-sunken border border-border-default text-text-primary text-xs rounded-xl px-3.5 focus:border-accent focus:outline-none transition-colors cursor-pointer shrink-0"
+            className="h-11 bg-surface-sunken border border-border-default text-text-primary text-xs rounded-xl px-3.5 focus:border-accent focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent transition-colors cursor-pointer shrink-0"
           >
             <option value="all">Todas las disciplinas</option>
             {disciplinesList.map((d) => (

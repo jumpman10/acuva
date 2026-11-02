@@ -1,6 +1,7 @@
 import * as XLSX from 'xlsx';
 import { Member, AccessLog, PaymentLog, DisciplineItem } from '../types';
-import { getCalculatedStatus, getDaysRemaining, formatDisplayDate } from './dateUtils';
+import { getDaysRemaining, formatDisplayDate } from './dateUtils';
+import { getMembershipTone } from './status';
 
 /**
  * Generic helper to build and trigger download of an .xlsx spreadsheet in the browser.
@@ -25,7 +26,7 @@ export function exportToExcel<T extends Record<string, any>>(
  */
 export function exportMembersToExcel(members: Member[], suffix = '') {
   const data = members.map((m) => {
-    const status = getCalculatedStatus(m.fecha_vencimiento, m.estado_pago);
+    const tone = getMembershipTone(m);
     const days = getDaysRemaining(m.fecha_vencimiento);
 
     return {
@@ -39,7 +40,7 @@ export function exportMembersToExcel(members: Member[], suffix = '') {
       'Fecha Ingreso': formatDisplayDate(m.fecha_ingreso),
       'Fecha Vencimiento': formatDisplayDate(m.fecha_vencimiento),
       'Días Restantes': days,
-      'Estado Membresía': status.membershipStatus.toUpperCase(),
+      'Estado Membresía': tone.label.toUpperCase(),
       'Estado Pago': m.estado_pago === 'pendiente' || m.estado_pago === 'saldo' ? 'SALDO' : (m.estado_pago ? m.estado_pago.toUpperCase() : 'SALDO'),
       'Método de Pago': m.metodo_pago || 'Efectivo',
     };

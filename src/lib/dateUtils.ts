@@ -1,5 +1,3 @@
-import { MembershipStatus, PaymentStatus } from '../types';
-
 /**
  * Format a Date object to YYYY-MM-DD
  */
@@ -77,58 +75,13 @@ export function getDaysRemaining(expirationDateStr: string): number {
 }
 
 /**
- * @deprecated Use `getMembershipTone` from `src/lib/status` instead.
- * Determine dynamic status based on expiration date and payment state
- */
-export function getCalculatedStatus(
-  expirationDateStr: string,
-  paymentStatus: PaymentStatus
-): { membershipStatus: MembershipStatus; daysRemaining: number; label: string; color: string } {
-  const daysRemaining = getDaysRemaining(expirationDateStr);
-
-  if (paymentStatus === 'pendiente' || paymentStatus === 'saldo' || paymentStatus === 'vencido' || daysRemaining < 0) {
-    return {
-      membershipStatus: 'vencido',
-      daysRemaining,
-      label: daysRemaining < 0 ? `Vencido hace ${Math.abs(daysRemaining)} días` : 'Vencido / Saldo pendiente',
-      color: 'bg-[#0f172a] text-red-400 border border-red-500/40 font-bold',
-    };
-  }
-
-  if (paymentStatus === 'parcial') {
-    return {
-      membershipStatus: 'activo',
-      daysRemaining,
-      label: daysRemaining === 0 ? 'Vence hoy (Pago Parcial)' : `${daysRemaining} días (Pago Parcial)`,
-      color: 'bg-[#0f172a] text-amber-300 border border-amber-500/40 font-bold',
-    };
-  }
-
-  if (daysRemaining <= 2) {
-    return {
-      membershipStatus: 'por_vencer',
-      daysRemaining,
-      label: daysRemaining === 0 ? '¡Vence hoy!' : daysRemaining === 1 ? 'Vence en 1 día' : 'Vence en 2 días',
-      color: 'bg-[#0f172a] text-white border border-[#34d399]/60 font-bold',
-    };
-  }
-
-  return {
-    membershipStatus: 'activo',
-    daysRemaining,
-    label: `${daysRemaining} días restantes`,
-    color: 'bg-[#34d399] text-[#0f172a] border border-[#34d399] font-black',
-  };
-}
-
-/**
  * Format date for friendly human display (e.g. "15 de Febrero, 2026")
  */
 export function formatDisplayDate(dateStr: string): string {
   if (!dateStr) return '';
   const [y, m, d] = dateStr.split('-').map(Number);
   const date = new Date(y, m - 1, d);
-  return date.toLocaleDateString('es-ES', {
+  return date.toLocaleDateString('es-AR', {
     day: 'numeric',
     month: 'short',
     year: 'numeric',
@@ -166,7 +119,7 @@ export function buildWhatsAppLink(
     timeText = `en ${daysRemaining} días (${readableDate})`;
   }
 
-  const message = `¡Hola ${nombre}! Te saludamos desde Acuva 🥊\n\nTe recordamos que tu carnet de *${disciplina}* vence ${timeText}.\n\nPara seguir disfrutando de tus entrenamientos sin interrupciones, puedes acercarte a recepción a renovar tu mensualidad o solicitar los datos de transferencia.\n\n¡Te esperamos con la mejor energía! 💪`;
+  const message = `¡Hola ${nombre}! Te saludamos desde Acuva 🥊\n\nTe recordamos que tu carnet de *${disciplina}* vence ${timeText}.\n\nPara seguir disfrutando de tus entrenamientos sin interrupciones, podés acercarte a recepción a renovar tu mensualidad o solicitar los datos de transferencia.\n\n¡Te esperamos con la mejor energía! 💪`;
 
   return `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`;
 }

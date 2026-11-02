@@ -87,7 +87,8 @@ export const AdminMobileBottomNav: React.FC<AdminMobileBottomNavProps> = ({
               key={item.id}
               type="button"
               onClick={item.onClick}
-              className={`flex flex-col items-center justify-center flex-1 py-1 gap-1 text-[11px] font-semibold transition-colors cursor-pointer ${
+              aria-label={item.label}
+              className={`flex flex-col items-center justify-center flex-1 py-1 gap-1 text-[11px] font-semibold transition-colors cursor-pointer focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent rounded-lg ${
                 item.isActive
                   ? 'text-accent'
                   : 'text-text-secondary hover:text-text-primary'
