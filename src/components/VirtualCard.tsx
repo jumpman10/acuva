@@ -1,21 +1,11 @@
 import React, { useEffect, useState, useRef } from 'react';
 import QRCode from 'qrcode';
 import { toJpeg } from 'html-to-image';
+import { Download, Share2, Loader2 } from 'lucide-react';
 import { Member } from '../types';
-import { getCalculatedStatus, formatDisplayDate } from '../lib/dateUtils';
-import isologo from '../assets/isologo.png';
-import {
-  Download,
-  Share2,
-  Calendar,
-  Phone,
-  Dumbbell,
-  Check,
-  AlertCircle,
-  QrCode,
-  User,
-  Loader2,
-} from 'lucide-react';
+import { getMembershipTone, TONE_CLASSES, formatDate } from '../lib/status';
+import { Button, MemberAvatar } from './ui';
+import magoLogo from '../assets/mago-logo.png';
 
 interface VirtualCardProps {
   member: Member;
@@ -23,11 +13,29 @@ interface VirtualCardProps {
   showActions?: boolean;
 }
 
-export const VirtualCard: React.FC<VirtualCardProps> = ({ member, onClose, showActions = true }) => {
+export const VirtualCard: React.FC<VirtualCardProps> = ({
+  member,
+  onClose: _onClose,
+  showActions = true,
+}) => {
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
   const [isDownloading, setIsDownloading] = useState<boolean>(false);
+  const [feedback, setFeedback] = useState<{
+    type: 'success' | 'error';
+    message: string;
+  } | null>(null);
+
   const cardRef = useRef<HTMLDivElement>(null);
-  const statusInfo = getCalculatedStatus(member.fecha_vencimiento, member.estado_pago);
+
+  const t = getMembershipTone(member);
+  const tone = TONE_CLASSES[t.tone];
+  const toneBorder = tone.borderSolid;
+  const toneBgSolid = tone.solid;
+  const toneBorderSoft = tone.border;
+
+  const isVencido = t.status === 'vencido';
+  const daysCount = isVencido ? 0 : Math.max(0, t.days);
+  const daysUnit = daysCount === 1 ? 'día' : 'días';
 
   useEffect(() => {
     QRCode.toDataURL(member.codigo_qr, {
@@ -46,18 +54,15 @@ export const VirtualCard: React.FC<VirtualCardProps> = ({ member, onClose, showA
     if (!cardRef.current || isDownloading) return;
 
     setIsDownloading(true);
+    setFeedback(null);
     try {
+      const isFileProtocol =
+        typeof window !== 'undefined' && window.location.protocol === 'file:';
       const exportOptions = {
         quality: 0.95,
         pixelRatio: 2,
-        backgroundColor: '#0f172a',
-        cacheBust: true,
-        filter: (node: Node) => {
-          if (node instanceof Element && node.getAttribute('data-export-hide') === 'true') {
-            return false;
-          }
-          return true;
-        },
+        backgroundColor: '#0b111e',
+        cacheBust: !isFileProtocol,
       };
 
       let dataUrl: string;
@@ -68,12 +73,13 @@ export const VirtualCard: React.FC<VirtualCardProps> = ({ member, onClose, showA
         dataUrl = await toJpeg(cardRef.current, {
           ...exportOptions,
           skipFonts: true,
+          cacheBust: false,
         });
       }
 
       const cleanLastName = (member.apellido || 'Socio')
         .trim()
-        .replace(/[^a-zA-Z0-9áéíóúÁÉÍÓÚñÑ_-]/g, '_');
+        .replace(/\s+/g, '_');
       const cleanDni = (member.dni || member.id.slice(0, 8)).trim();
       const fileName = `Carnet_${cleanLastName}_${cleanDni}.jpg`;
 
@@ -85,13 +91,18 @@ export const VirtualCard: React.FC<VirtualCardProps> = ({ member, onClose, showA
       document.body.removeChild(link);
     } catch (error) {
       console.error('Error al generar el carnet en JPG:', error);
-      alert('Hubo un inconveniente al generar la imagen del carnet. Por favor intentá nuevamente.');
+      setFeedback({
+        type: 'error',
+        message:
+          'Hubo un inconveniente al generar la imagen del carnet. Por favor intentá nuevamente.',
+      });
     } finally {
       setIsDownloading(false);
     }
   };
 
   const handleShare = async () => {
+    setFeedback(null);
     if (navigator.share) {
       try {
         await navigator.share({
@@ -103,182 +114,167 @@ export const VirtualCard: React.FC<VirtualCardProps> = ({ member, onClose, showA
         console.debug('Share dismissed');
       }
     } else {
-      navigator.clipboard.writeText(`Acuva: ${member.nombre} ${member.apellido} (DNI: ${member.dni})`);
-      alert('Información del carnet copiada al portapapeles');
+      try {
+        await navigator.clipboard.writeText(
+          `Acuva: ${member.nombre} ${member.apellido} (DNI: ${member.dni})`
+        );
+        setFeedback({
+          type: 'success',
+          message: 'Información del carnet copiada al portapapeles.',
+        });
+      } catch {
+        setFeedback({
+          type: 'error',
+          message: 'No se pudo copiar la información al portapapeles.',
+        });
+      }
     }
   };
 
-  const daysTotal = 30;
-  const daysLeft = Math.max(0, Math.min(statusInfo.daysRemaining, daysTotal));
-  const progressPercent = Math.min(100, Math.max(5, (daysLeft / daysTotal) * 100));
-
   return (
-    <div className="flex flex-col items-center w-full max-w-sm mx-auto">
-      {/* Physical Virtual Card UI - Black & White Minimalist Design */}
+    <div className="flex flex-col items-center w-full max-w-[400px] mx-auto">
+      {/* Contenedor carnet */}
       <div
         ref={cardRef}
-        className="w-full bg-[#0f172a] rounded-2xl p-4 sm:p-5 border border-[#34d399]/40 shadow-2xl relative overflow-hidden text-white"
+        className="w-full max-w-[400px] bg-carnet-ground rounded-card pt-[22px] pb-[18px] flex flex-col gap-4 overflow-hidden text-text-primary"
       >
-        {/* Top Header */}
-        <div className="flex items-center justify-between border-b border-[#34d399]/30 pb-3 mb-4">
-          <div className="flex items-center gap-2.5">
-            <img
-              src={isologo}
-              alt="Acuva"
-              className="w-8 h-8 rounded-lg object-contain shrink-0"
+        {/* 1. Header */}
+        <div className="px-[22px] flex items-center justify-between gap-3">
+          <img
+            src={magoLogo}
+            alt="Acuva"
+            className="h-5 w-auto object-contain shrink-0"
+          />
+          <span className="text-xs font-bold uppercase tracking-[0.12em] text-text-secondary truncate text-right">
+            Socio · {member.disciplina}
+          </span>
+        </div>
+
+        {/* 2. Panel */}
+        <div
+          className={`bg-carnet-panel rounded-panel border-y-2 border-x-0 ${toneBorder} pt-6 pb-[26px] flex flex-col gap-[22px]`}
+        >
+          {/* 3. Socio */}
+          <div className="px-[22px] flex items-center gap-3.5">
+            <MemberAvatar
+              src={member.foto_url}
+              name={`${member.nombre} ${member.apellido}`}
+              shape="square"
+              className="w-[60px] h-[60px]"
             />
-            <div>
-              <div className="flex items-center gap-1.5">
-                <span className="font-black text-sm tracking-widest text-white uppercase">Acuva</span>
-                <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded bg-[#0f172a] text-white border border-[#34d399]/40">
-                  PASS
+            <div className="flex-1 min-w-0">
+              <h3 className="text-2xl font-bold leading-tight tracking-[-0.01em] text-text-primary truncate">
+                {member.nombre} {member.apellido}
+              </h3>
+              <div className="flex justify-between items-center font-mono text-xs text-text-secondary mt-1">
+                <span>DNI {member.dni}</span>
+                <span>{member.telefono}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* 4. Caja del QR */}
+          <div
+            className={`mr-[26px] bg-carnet-ground border-t-[1.5px] border-r-[1.5px] ${toneBorder} border-b-[1.5px] ${toneBorderSoft} border-l-0 rounded-r-[32px] py-[22px] pl-[22px] pr-6 flex flex-col items-center justify-center`}
+          >
+            <div className="bg-qr-paper rounded-[20px] p-4 pb-3 flex flex-col items-center">
+              {qrDataUrl ? (
+                <img
+                  src={qrDataUrl}
+                  alt={`QR ${member.codigo_qr}`}
+                  className="w-[190px] h-[190px] object-contain"
+                />
+              ) : (
+                <div className="w-[190px] h-[190px] flex items-center justify-center text-ink-on-accent">
+                  <Loader2 className="w-8 h-8 animate-spin" />
+                </div>
+              )}
+              <span className="font-mono text-xs font-bold text-ink-on-accent tracking-[0.06em] mt-2 text-center">
+                {member.codigo_qr}
+              </span>
+            </div>
+          </div>
+
+          {/* 5. Barra de estado */}
+          <div
+            className={`mr-[26px] h-[68px] ${toneBgSolid} rounded-r-[20px] flex items-center justify-center`}
+          >
+            <span className="text-[38px] font-bold text-ink-on-accent leading-none select-none">
+              {t.label}
+            </span>
+          </div>
+
+          {/* 6. Fechas */}
+          <div className="grid grid-cols-3 px-[22px] pt-3 text-xs items-start">
+            <div className="flex flex-col">
+              <span className="text-text-muted">Alta</span>
+              <span className="font-semibold text-text-primary mt-0.5">
+                {formatDate(member.fecha_ingreso)}
+              </span>
+            </div>
+            <div className="flex justify-center">
+              <div
+                className={`w-[112px] h-[112px] rounded-full bg-carnet-ground border-[1.5px] ${toneBorder} mt-3.5 flex flex-col items-center justify-center`}
+              >
+                <span className="text-4xl font-bold text-text-primary leading-none">
+                  {daysCount}
+                </span>
+                <span className="text-[15px] font-semibold text-text-secondary leading-none mt-1">
+                  {daysUnit}
                 </span>
               </div>
-              <p className="text-[10px] text-slate-300 tracking-wider uppercase">Socio Digital</p>
             </div>
-          </div>
-
-          {/* Status Badge */}
-          <div data-export-hide="true" className="flex items-center">
-            {statusInfo.membershipStatus === 'activo' ? (
-              <span className="px-2.5 py-1 rounded-md text-[11px] font-bold bg-[#34d399] text-[#0f172a] border border-[#34d399] flex items-center gap-1">
-                <Check className="w-3 h-3 stroke-[3]" />
-                AL DÍA
-              </span>
-            ) : statusInfo.membershipStatus === 'por_vencer' ? (
-              <span className="px-2.5 py-1 rounded-md text-[11px] font-bold bg-[#0f172a] text-amber-300 border border-amber-500/40 flex items-center gap-1">
-                <AlertCircle className="w-3 h-3" />
-                POR VENCER
-              </span>
-            ) : (
-              <span className="px-2.5 py-1 rounded-md text-[11px] font-bold bg-[#0f172a] text-red-400 border border-red-500/40 line-through">
-                VENCIDO
-              </span>
-            )}
-          </div>
-        </div>
-
-        {/* Member Profile Row */}
-        <div className="flex items-center gap-3.5 mb-4">
-          {member.foto_url ? (
-            <img
-              src={member.foto_url}
-              alt={`${member.nombre} ${member.apellido}`}
-              className="w-16 h-16 rounded-xl object-cover border border-[#34d399]/40 bg-[#0f172a] shrink-0 transition-all"
-              crossOrigin="anonymous"
-            />
-          ) : (
-            <div className="w-16 h-16 rounded-xl border border-dashed border-[#34d399]/40 bg-[#0f172a] flex flex-col items-center justify-center text-white/50 shrink-0">
-              <User className="w-6 h-6 stroke-[1.5] text-white/40 mb-0.5" />
-              <span className="text-[8px] font-mono tracking-tighter uppercase text-slate-300">
-                Sin foto
-              </span>
-            </div>
-          )}
-
-          <div className="flex-1 min-w-0">
-            <h4 className="text-base sm:text-lg font-black text-white truncate leading-tight tracking-tight">
-              {member.nombre} {member.apellido}
-            </h4>
-            <p className="text-xs text-slate-300 font-mono mt-0.5">DNI: {member.dni}</p>
-
-            <div className="mt-1.5 flex items-center">
-              <span className="inline-flex items-center gap-1 text-[11px] font-medium bg-[#0f172a] text-white px-2 py-0.5 rounded border border-[#34d399]/40">
-                <Dumbbell className="w-3 h-3 text-[#34d399]" />
-                {member.disciplina}
+            <div className="flex flex-col text-right items-end">
+              <span className="text-text-muted">Vence</span>
+              <span className="font-semibold text-text-primary mt-0.5">
+                {formatDate(member.fecha_vencimiento)}
               </span>
             </div>
           </div>
         </div>
 
-        {/* QR Code Container - Pure High Contrast */}
-        <div className="bg-white rounded-xl p-3 flex flex-col items-center justify-center my-3">
-          {qrDataUrl ? (
-            <img src={qrDataUrl} alt="QR Membresía" className="w-44 h-44 object-contain" />
-          ) : (
-            <div className="w-44 h-44 flex items-center justify-center text-black">
-              <QrCode className="w-10 h-10 animate-spin" />
-            </div>
-          )}
-          <div className="text-[10px] font-mono font-bold text-black tracking-wider text-center mt-1">
-            {member.codigo_qr}
-          </div>
-          <div className="text-[9px] text-neutral-600 uppercase tracking-widest text-center mt-0.5">
-            Escanear en portería
-          </div>
-        </div>
-
-        {/* Days Remaining Counter */}
-        <div data-export-hide="true" className="bg-[#0f172a] rounded-xl p-3 border border-[#34d399]/40 mb-3">
-          <div className="flex items-center justify-between text-xs mb-1.5">
-            <span className="text-slate-300 font-medium">Días restantes:</span>
-            <span
-              className={`font-black text-sm font-mono ${statusInfo.daysRemaining <= 2
-                ? statusInfo.daysRemaining < 0
-                  ? 'text-red-400'
-                  : 'text-amber-300 underline decoration-amber-300 decoration-2'
-                : 'text-[#34d399]'
-                }`}
-            >
-              {statusInfo.daysRemaining < 0
-                ? `${Math.abs(statusInfo.daysRemaining)} DÍAS VENCIDO`
-                : `${statusInfo.daysRemaining} DÍAS`}
-            </span>
-          </div>
-
-          {/* Progress bar */}
-          <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden border border-[#34d399]/30">
-            <div
-              className="h-full bg-[#34d399] transition-all duration-300"
-              style={{ width: `${progressPercent}%` }}
-            />
-          </div>
-
-          <div className="flex items-center justify-between text-[11px] text-slate-300 mt-2.5 pt-2 border-t border-[#34d399]/20">
-            <div className="flex items-center gap-1">
-              <Calendar className="w-3 h-3 text-[#34d399]" />
-              <span>Alta: {formatDisplayDate(member.fecha_ingreso)}</span>
-            </div>
-            <div className="flex items-center gap-1 font-semibold text-white">
-              <span>Vence: {formatDisplayDate(member.fecha_vencimiento)}</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Card Footer Info */}
-        <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1 border-t border-[#34d399]/20">
-          <span className="flex items-center gap-1 font-mono">
-            <Phone className="w-3 h-3 text-[#34d399]" /> {member.telefono}
-          </span>
-          {member.fecha_nacimiento && (
-            <span className="font-mono text-[9px] text-slate-400">
-              Nac: {formatDisplayDate(member.fecha_nacimiento)}
-            </span>
-          )}
-          <span className="font-mono text-[9px] uppercase">ID: {member.id.slice(0, 8)}</span>
-        </div>
+        {/* 7. Pie */}
+        <p className="text-[11px] uppercase tracking-[0.14em] text-text-faint text-center">
+          Mostrá este QR en portería
+        </p>
       </div>
 
-      {/* Action Buttons - Mobile friendly */}
+      {/* Acciones */}
       {showActions && (
-        <div className="flex items-center gap-2 mt-3 w-full justify-center no-print">
-          <button
-            onClick={handleDownload}
+        <div className="flex items-center gap-2 mt-4 w-full max-w-[400px] justify-center no-print">
+          <Button
+            variant="primary"
+            size="lg"
+            icon={Download}
+            loading={isDownloading}
             disabled={!qrDataUrl || isDownloading}
-            className="flex-1 py-2.5 px-3 bg-[#34d399] hover:bg-[#34d399]/90 active:scale-95 disabled:opacity-50 disabled:pointer-events-none text-[#0f172a] text-xs font-black rounded-xl border border-[#34d399] shadow-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+            onClick={handleDownload}
+            className="flex-1"
           >
-            {isDownloading ? (
-              <>
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                <span>Generando JPG...</span>
-              </>
-            ) : (
-              <>
-                <Download className="w-3.5 h-3.5 stroke-[2.5]" />
-                <span>Descargar Carnet (JPG)</span>
-              </>
-            )}
-          </button>
+            {isDownloading ? 'Generando JPG…' : 'Descargar carnet'}
+          </Button>
+          <Button
+            variant="secondary"
+            iconOnly
+            icon={Share2}
+            aria-label="Compartir carnet"
+            onClick={handleShare}
+            className="h-[52px] w-[52px] min-h-[52px] min-w-[52px] rounded-[14px] shrink-0"
+          />
+        </div>
+      )}
+
+      {/* Mensaje inline */}
+      {feedback && (
+        <div
+          role="status"
+          className={`w-full max-w-[400px] mt-3 p-3 rounded-xl text-xs font-semibold text-center border ${
+            feedback.type === 'error'
+              ? 'bg-status-danger-soft text-status-danger border-status-danger-border'
+              : 'bg-status-ok-soft text-status-ok border-status-ok-border'
+          }`}
+        >
+          {feedback.message}
         </div>
       )}
     </div>

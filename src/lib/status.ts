@@ -14,25 +14,28 @@ export interface MembershipToneResult {
 
 export const TONE_CLASSES: Record<
   MembershipTone,
-  { text: string; bg: string; border: string; solid: string }
+  { text: string; bg: string; border: string; solid: string; borderSolid: string }
 > = {
   ok: {
     text: 'text-status-ok',
     bg: 'bg-status-ok-soft',
     border: 'border-status-ok-border',
     solid: 'bg-status-ok',
+    borderSolid: 'border-status-ok',
   },
   warn: {
     text: 'text-status-warn',
     bg: 'bg-status-warn-soft',
     border: 'border-status-warn-border',
     solid: 'bg-status-warn',
+    borderSolid: 'border-status-warn',
   },
   danger: {
     text: 'text-status-danger',
     bg: 'bg-status-danger-soft',
     border: 'border-status-danger-border',
     solid: 'bg-status-danger',
+    borderSolid: 'border-status-danger',
   },
 };
 
