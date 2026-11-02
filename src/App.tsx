@@ -186,14 +186,14 @@ export default function App() {
                   <img
                     src={isologo}
                     alt="Acuva"
-                    className="w-12 h-12 mx-auto object-contain animate-pulse drop-shadow-[0_4px_16px_rgba(52,211,153,0.3)]"
+                    className="w-12 h-12 mx-auto object-contain animate-pulse"
                   />
                   <img
                     src={logo}
                     alt="Acuva"
                     className="h-5 mx-auto object-contain opacity-80"
                   />
-                  <p className="text-xs font-mono uppercase tracking-wider text-slate-300">Cargando...</p>
+                  <p className="text-xs text-text-muted">Cargando...</p>
                 </div>
               </div>
             ) : (
@@ -307,14 +307,14 @@ export default function App() {
               <img
                 src={isologo}
                 alt="Acuva"
-                className="w-12 h-12 mx-auto object-contain animate-pulse drop-shadow-[0_4px_16px_rgba(52,211,153,0.3)]"
+                className="w-12 h-12 mx-auto object-contain animate-pulse"
               />
               <img
                 src={logo}
                 alt="Acuva"
                 className="h-5 mx-auto object-contain opacity-80"
               />
-              <p className="text-xs font-mono uppercase tracking-wider text-slate-300">Cargando...</p>
+              <p className="text-xs text-text-muted">Cargando...</p>
             </div>
           </div>
         ) : isAdminRoute ? (
@@ -338,8 +338,8 @@ export default function App() {
 
       {/* Footer (solo para rutas admin fuera de sesión, el portal de socios tiene su propio pie) */}
       {isAdminRoute && (
-        <footer className="border-t border-accent/20 bg-bg-base py-4 text-center text-xs text-text-muted no-print">
-          <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2 font-mono text-[11px]">
+        <footer className="border-t border-border-subtle bg-bg-base py-4 text-center text-xs text-text-muted no-print">
+          <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-text-muted">
             <div className="flex items-center gap-2 mx-auto sm:mx-0">
               <img src={isologo} alt="Acuva" className="w-4 h-4 object-contain" />
               <span>&copy; {new Date().getFullYear()} Acuva • Sistema de Gestión y Carnets QR</span>

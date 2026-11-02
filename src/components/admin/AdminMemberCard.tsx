@@ -24,8 +24,17 @@ export const AdminMemberCard: React.FC<AdminMemberCardProps> = ({
 
   return (
     <Card
+      tabIndex={0}
+      role="button"
       onClick={() => (onSelectMember ? onSelectMember(member) : onOpenEditMember(member))}
-      className="p-3.5 space-y-3 cursor-pointer hover:border-border-default transition-colors select-none"
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          if (onSelectMember) onSelectMember(member);
+          else onOpenEditMember(member);
+        }
+      }}
+      className="p-3.5 space-y-3 cursor-pointer hover:border-border-default transition-colors select-none focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
     >
       {/* Fila principal: Avatar 46px + Nombre + "Disciplina · vence 23 nov" + StatusBadge a la derecha */}
       <div className="flex items-center justify-between gap-3">

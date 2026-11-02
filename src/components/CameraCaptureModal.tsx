@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Camera, X, RefreshCw, Check, AlertCircle, FlipHorizontal } from 'lucide-react';
 import { processCarnetPhoto } from '../lib/imageUtils';
+import { Button } from './ui';
 
 interface CameraCaptureModalProps {
   isOpen: boolean;
@@ -161,54 +162,50 @@ export const CameraCaptureModal: React.FC<CameraCaptureModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[60] overflow-y-auto bg-[#0f172a]/80 backdrop-blur-md">
+    <div className="fixed inset-0 z-[60] overflow-y-auto bg-overlay backdrop-blur-[3px]">
       <div className="min-h-full flex items-center justify-center p-2.5 sm:p-4">
-        <div className="bg-[#0f172a] border border-[#34d399] rounded-2xl w-full max-w-md overflow-hidden shadow-2xl my-auto flex flex-col max-h-[calc(100dvh-1.5rem)] sm:max-h-[92vh]">
+        <div className="bg-carnet-ground border border-border-default rounded-[20px] w-full max-w-md overflow-hidden my-auto flex flex-col max-h-[calc(100dvh-1.5rem)] sm:max-h-[92vh]">
           {/* Header */}
-          <div className="p-3.5 border-b border-[#34d399]/30 flex items-center justify-between shrink-0 bg-[#0f172a]">
-            <div className="flex items-center gap-2">
-              <div className="w-7 h-7 rounded-lg bg-[#34d399] border border-[#34d399] flex items-center justify-center text-[#0f172a]">
-                <Camera className="w-3.5 h-3.5" />
+          <div className="p-3.5 border-b border-border-subtle flex items-center justify-between shrink-0 bg-carnet-ground">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-lg bg-accent text-ink-on-accent flex items-center justify-center">
+                <Camera className="w-4 h-4" />
               </div>
               <div>
-                <h3 className="text-xs sm:text-sm font-black text-white uppercase font-mono tracking-wide">
-                  Foto Carnet 1:1
+                <h3 className="text-sm font-bold text-text-primary">
+                  Foto del carnet 1:1
                 </h3>
-                <p className="text-[10px] text-slate-300 font-mono">
-                  {capturedPhoto ? 'Revisa la foto antes de guardar' : 'Encuadra el rostro en el recuadro'}
+                <p className="text-xs text-text-muted">
+                  {capturedPhoto ? 'Revisá la foto antes de guardar' : 'Encuadrá el rostro en el recuadro'}
                 </p>
               </div>
             </div>
 
-            <button
-              type="button"
+            <Button
+              variant="ghost"
+              iconOnly
+              icon={X}
+              aria-label="Cerrar"
               onClick={handleCloseModal}
-              className="w-7 h-7 rounded-lg bg-[#0f172a] hover:bg-[#1e293b] text-slate-300 hover:text-white flex items-center justify-center transition-colors"
-            >
-              <X className="w-4 h-4" />
-            </button>
+            />
           </div>
 
           {/* Viewfinder Content */}
-          <div className="p-4 flex flex-col items-center justify-center bg-[#0f172a] overflow-y-auto flex-1 min-h-0">
+          <div className="p-4 flex flex-col items-center justify-center bg-carnet-ground overflow-y-auto flex-1 min-h-0">
             {errorMessage ? (
-              <div className="w-full py-12 px-4 text-center space-y-3">
-                <div className="w-12 h-12 rounded-xl bg-red-950/40 border border-red-900/60 text-red-400 mx-auto flex items-center justify-center">
+              <div className="w-full py-8 px-4 text-center space-y-3 bg-status-danger-soft border border-status-danger-border text-status-danger rounded-2xl">
+                <div className="w-12 h-12 rounded-xl bg-status-danger/20 border border-status-danger/40 text-status-danger mx-auto flex items-center justify-center">
                   <AlertCircle className="w-6 h-6" />
                 </div>
-                <p className="text-xs text-slate-300 font-mono max-w-xs mx-auto">
+                <p className="text-xs text-text-secondary max-w-xs mx-auto">
                   {errorMessage}
                 </p>
-                <button
-                  type="button"
-                  onClick={handleCloseModal}
-                  className="px-4 py-1.5 rounded-lg bg-[#0f172a] border border-[#34d399]/40 text-white text-xs font-mono hover:bg-[#1e293b]"
-                >
+                <Button variant="secondary" onClick={handleCloseModal}>
                   Cerrar y subir archivo
-                </button>
+                </Button>
               </div>
             ) : (
-              <div className="relative w-72 h-72 sm:w-80 sm:h-80 rounded-2xl overflow-hidden bg-[#0f172a] border-2 border-[#34d399] shadow-inner flex items-center justify-center">
+              <div className="relative w-72 h-72 sm:w-80 sm:h-80 bg-surface-sunken rounded-2xl border border-accent overflow-hidden flex items-center justify-center">
                 {/* Captured Photo Preview Mode */}
                 {capturedPhoto ? (
                   <div className="w-full h-full relative">
@@ -217,7 +214,7 @@ export const CameraCaptureModal: React.FC<CameraCaptureModalProps> = ({
                       alt="Foto carnet capturada"
                       className="w-full h-full object-cover"
                     />
-                    <div className="absolute top-2 right-2 bg-[#0f172a]/80 backdrop-blur-sm px-2 py-0.5 rounded text-[10px] font-mono text-white border border-[#34d399]">
+                    <div className="absolute top-2 right-2 bg-carnet-ground/90 border border-border-subtle text-text-secondary rounded text-[10px] px-2 py-0.5">
                       400x400 • 1:1
                     </div>
                   </div>
@@ -225,9 +222,9 @@ export const CameraCaptureModal: React.FC<CameraCaptureModalProps> = ({
                   /* Live Camera Stream Mode */
                   <>
                     {isLoadingCamera && (
-                      <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-[#0f172a] text-slate-300 gap-2">
-                        <RefreshCw className="w-6 h-6 animate-spin text-[#34d399]" />
-                        <span className="text-[11px] font-mono">Iniciando cámara...</span>
+                      <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-carnet-ground text-text-muted gap-2">
+                        <RefreshCw className="w-6 h-6 animate-spin text-accent" />
+                        <span className="text-xs">Iniciando cámara...</span>
                       </div>
                     )}
 
@@ -236,92 +233,89 @@ export const CameraCaptureModal: React.FC<CameraCaptureModalProps> = ({
                       autoPlay
                       playsInline
                       muted
-                      className={`w-full h-full object-cover ${facingMode === 'user' ? 'scale-x-[-1]' : ''
-                        }`}
+                      className={`w-full h-full object-cover ${
+                        facingMode === 'user' ? 'scale-x-[-1]' : ''
+                      }`}
                     />
 
                     {/* 1:1 Carnet Guide Overlay */}
-                    <div className="absolute inset-3 border border-white/30 rounded-xl pointer-events-none flex flex-col items-center justify-between p-2">
+                    <div className="absolute inset-3 border border-border-subtle/50 rounded-xl pointer-events-none flex flex-col items-center justify-between p-2">
                       {/* Corner accents */}
                       <div className="w-full flex justify-between">
-                        <div className="w-3.5 h-3.5 border-t-2 border-l-2 border-[#34d399] rounded-tl" />
-                        <div className="w-3.5 h-3.5 border-t-2 border-r-2 border-[#34d399] rounded-tr" />
+                        <div className="w-3.5 h-3.5 border-t-2 border-l-2 border-accent rounded-tl" />
+                        <div className="w-3.5 h-3.5 border-t-2 border-r-2 border-accent rounded-tr" />
                       </div>
 
                       {/* Subtle oval head guideline */}
-                      <div className="w-32 h-44 border border-dashed border-white/35 rounded-full pointer-events-none flex items-center justify-center">
-                        <span className="text-[9px] uppercase font-mono tracking-widest text-white/50">
+                      <div className="w-32 h-44 border border-dashed border-border-default rounded-full pointer-events-none flex items-center justify-center">
+                        <span className="text-[9px] uppercase tracking-widest text-text-muted">
                           ROSTRO
                         </span>
                       </div>
 
                       <div className="w-full flex justify-between">
-                        <div className="w-3.5 h-3.5 border-b-2 border-l-2 border-[#34d399] rounded-bl" />
-                        <div className="w-3.5 h-3.5 border-b-2 border-r-2 border-[#34d399] rounded-br" />
+                        <div className="w-3.5 h-3.5 border-b-2 border-l-2 border-accent rounded-bl" />
+                        <div className="w-3.5 h-3.5 border-b-2 border-r-2 border-accent rounded-br" />
                       </div>
                     </div>
 
                     {/* Flip camera button if device has multiple */}
                     {hasMultipleCameras && !isLoadingCamera && (
-                      <button
-                        type="button"
+                      <Button
+                        variant="secondary"
+                        iconOnly
+                        icon={FlipHorizontal}
+                        aria-label="Cambiar de cámara"
                         onClick={handleToggleFacingMode}
-                        title="Cambiar cámara frontal/trasera"
-                        className="absolute top-3 right-3 z-20 p-2 bg-[#0f172a]/80 hover:bg-[#1e293b] text-white rounded-lg border border-[#34d399] backdrop-blur-sm transition-colors"
-                      >
-                        <FlipHorizontal className="w-4 h-4 text-[#34d399]" />
-                      </button>
+                        className="absolute top-3 right-3 z-20"
+                      />
                     )}
                   </>
                 )}
               </div>
             )}
 
-            <p className="text-[10px] text-slate-400 font-mono mt-2.5 text-center">
+            <p className="text-[11px] text-text-faint mt-2.5 text-center">
               Formato cuadrado 1:1 carnet optimizado (&lt;40KB)
             </p>
           </div>
 
           {/* Footer Actions */}
           {!errorMessage && (
-            <div className="p-3.5 border-t border-[#34d399]/30 bg-[#0f172a] flex items-center justify-between gap-2.5 shrink-0">
+            <div className="bg-carnet-ground border-t border-border-subtle p-3.5 flex items-center justify-between gap-2.5 shrink-0">
               {capturedPhoto ? (
                 <>
-                  <button
-                    type="button"
+                  <Button
+                    variant="secondary"
+                    icon={RefreshCw}
                     onClick={handleRetake}
-                    className="flex-1 py-2 px-3 rounded-lg border border-[#34d399]/40 text-white hover:bg-[#1e293b] text-xs font-mono flex items-center justify-center gap-1.5 transition-colors"
+                    className="flex-1"
                   >
-                    <RefreshCw className="w-3.5 h-3.5" />
                     Tomar otra
-                  </button>
-                  <button
-                    type="button"
+                  </Button>
+                  <Button
+                    variant="primary"
+                    icon={Check}
                     onClick={handleConfirmPhoto}
-                    className="flex-1 py-2 px-3 rounded-lg bg-[#34d399] hover:bg-[#34d399]/90 text-[#0f172a] font-black uppercase text-xs tracking-wider font-mono flex items-center justify-center gap-1.5 transition-colors shadow-lg"
+                    className="flex-1"
                   >
-                    <Check className="w-3.5 h-3.5 stroke-[3]" />
                     Usar foto
-                  </button>
+                  </Button>
                 </>
               ) : (
                 <>
-                  <button
-                    type="button"
-                    onClick={handleCloseModal}
-                    className="py-2 px-4 rounded-lg border border-[#34d399]/40 text-white hover:bg-[#1e293b] text-xs font-mono transition-colors"
-                  >
+                  <Button variant="secondary" onClick={handleCloseModal}>
                     Cancelar
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleTakeSnapshot}
+                  </Button>
+                  <Button
+                    variant="primary"
+                    icon={Camera}
                     disabled={isLoadingCamera}
-                    className="flex-1 py-2.5 px-4 rounded-lg bg-[#34d399] hover:bg-[#34d399]/90 active:scale-95 disabled:opacity-50 text-[#0f172a] font-black uppercase text-xs tracking-wider font-mono flex items-center justify-center gap-2 transition-all shadow-lg"
+                    onClick={handleTakeSnapshot}
+                    className="flex-1"
                   >
-                    <Camera className="w-4 h-4 stroke-[2.5]" />
-                    Capturar Foto
-                  </button>
+                    Capturar foto
+                  </Button>
                 </>
               )}
             </div>

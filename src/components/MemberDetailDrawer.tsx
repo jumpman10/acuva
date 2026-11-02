@@ -179,11 +179,11 @@ export const MemberDetailDrawer: React.FC<MemberDetailDrawerProps> = ({
           </div>
           <div className="text-right shrink-0">
             <span
-              className={`text-[32px] sm:text-[36px] font-bold font-mono ${tone.text} leading-none block`}
+              className={`text-[32px] sm:text-[36px] font-bold ${tone.text} leading-none block`}
             >
               {absDays}
             </span>
-            <span className="text-[11px] font-semibold text-text-muted uppercase tracking-wider mt-1 block">
+            <span className="text-[11px] font-semibold text-text-muted mt-1 block">
               {daysSuffix} {daysContext}
             </span>
           </div>
@@ -252,19 +252,19 @@ export const MemberDetailDrawer: React.FC<MemberDetailDrawerProps> = ({
             </div>
             <div className="flex items-center justify-between py-2.5 px-3.5 text-xs">
               <span className="text-text-muted">Alta</span>
-              <span className="font-mono text-text-primary">
+              <span className="text-text-primary">
                 {formatDate(member.fecha_ingreso)}
               </span>
             </div>
             <div className="flex items-center justify-between py-2.5 px-3.5 text-xs">
               <span className="text-text-muted">Vence</span>
-              <span className="font-mono text-text-primary">
+              <span className="text-text-primary">
                 {formatDate(member.fecha_vencimiento)}
               </span>
             </div>
             <div className="flex items-center justify-between py-2.5 px-3.5 text-xs">
               <span className="text-text-muted">Cuota</span>
-              <span className="font-mono font-semibold text-text-primary">
+              <span className="font-semibold text-text-primary">
                 {formatMoney(member.monto_mensual || 0)}
               </span>
             </div>
@@ -321,7 +321,7 @@ export const MemberDetailDrawer: React.FC<MemberDetailDrawerProps> = ({
                   </div>
 
                   <span
-                    className={`font-mono text-xs font-semibold shrink-0 ${
+                    className={`text-xs font-semibold shrink-0 ${
                       act.type === 'payment'
                         ? 'text-status-ok'
                         : act.tone === 'danger'

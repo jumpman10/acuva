@@ -99,7 +99,7 @@ export const AdminLoginPage: React.FC<AdminLoginPageProps> = ({
           onClick={onNavigateHome}
           className="text-xs -ml-2 text-text-muted hover:text-text-primary"
         >
-          Volver al Portal de Socios
+          Volver al portal de socios
         </Button>
 
         {/* Header */}
@@ -108,15 +108,15 @@ export const AdminLoginPage: React.FC<AdminLoginPageProps> = ({
             <img
               src={isologo}
               alt="Acuva"
-              className="w-14 h-14 mx-auto object-contain drop-shadow-[0_4px_16px_rgba(52,211,153,0.25)]"
+              className="w-14 h-14 mx-auto object-contain"
             />
-            <div className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-accent text-ink-on-accent flex items-center justify-center border-2 border-surface-100 shadow">
+            <div className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-accent text-ink-on-accent flex items-center justify-center border-2 border-surface-100">
               <Shield className="w-3.5 h-3.5" />
             </div>
           </div>
           <img src={logo} alt="Acuva" className="h-6 mx-auto object-contain" />
-          <h2 className="text-base font-bold tracking-wide text-text-primary uppercase">
-            {isSignUp ? 'Crear Administrador' : 'Panel de Administración'}
+          <h2 className="text-base font-bold text-text-primary">
+            {isSignUp ? 'Crear administrador' : 'Panel de administración'}
           </h2>
           <p className="text-xs text-text-muted">
             Acceso exclusivo del personal vía Supabase Auth
@@ -166,7 +166,6 @@ export const AdminLoginPage: React.FC<AdminLoginPageProps> = ({
           <Field label="Correo electrónico">
             <Input
               variant="admin"
-              mono
               type="email"
               required
               value={email}
@@ -178,7 +177,6 @@ export const AdminLoginPage: React.FC<AdminLoginPageProps> = ({
           <Field label="Contraseña">
             <Input
               variant="admin"
-              mono
               type="password"
               required
               value={password}
@@ -197,7 +195,7 @@ export const AdminLoginPage: React.FC<AdminLoginPageProps> = ({
             icon={Lock}
             className="w-full mt-2"
           >
-            {isSignUp ? 'Registrar Administrador' : 'Ingresar al Panel'}
+            {isSignUp ? 'Registrar administrador' : 'Ingresar al panel'}
           </Button>
         </form>
 
@@ -210,11 +208,11 @@ export const AdminLoginPage: React.FC<AdminLoginPageProps> = ({
               setErrorMsg(null);
               setSuccessMsg(null);
             }}
-            className="text-xs text-text-muted hover:text-text-primary transition-colors underline cursor-pointer"
+            className="text-xs text-text-muted hover:text-text-primary transition-colors underline cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent rounded"
           >
             {isSignUp
               ? '¿Ya tenés cuenta? Iniciar sesión'
-              : '¿No tenés cuenta de admin? Registrarse'}
+              : '¿No tenés cuenta de admin? Registrate'}
           </button>
         </div>
       </Card>

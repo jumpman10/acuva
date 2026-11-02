@@ -72,7 +72,7 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
                 key={item.id}
                 type="button"
                 onClick={() => onTabChange(item.id)}
-                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm font-semibold transition-colors cursor-pointer ${
+                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm font-semibold transition-colors cursor-pointer focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent ${
                   isActive
                     ? 'bg-accent-soft text-accent'
                     : 'text-text-secondary hover:bg-surface-hover'
@@ -84,7 +84,7 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
                 </div>
                 {item.showCount && (
                   <span
-                    className={`text-xs font-mono font-bold px-2 py-0.5 rounded-md ${
+                    className={`text-xs font-bold px-2 py-0.5 rounded-md ${
                       isActive
                         ? 'bg-accent/15 text-accent'
                         : 'bg-surface-200 text-text-muted'
@@ -101,7 +101,7 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
           <button
             type="button"
             onClick={onOpenConfigModal}
-            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold text-text-secondary hover:bg-surface-hover transition-colors cursor-pointer"
+            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold text-text-secondary hover:bg-surface-hover transition-colors cursor-pointer focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
           >
             <SlidersHorizontal size={18} strokeWidth={2} className="shrink-0" />
             <span>Configurar</span>
@@ -119,7 +119,7 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
           />
           <div className="min-w-0 flex-1">
             <p className="text-xs font-bold text-text-primary truncate">Administrador</p>
-            <p className="text-[11px] text-text-muted font-mono truncate">
+            <p className="text-[11px] text-text-muted truncate">
               {adminUser?.email || 'admin@acuva.com'}
             </p>
           </div>

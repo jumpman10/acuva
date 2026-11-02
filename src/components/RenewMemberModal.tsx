@@ -342,7 +342,7 @@ export const RenewMemberModal: React.FC<RenewMemberModalProps> = ({
               <button
                 type="button"
                 onClick={() => handleModoCobroChange('renovacion')}
-                className={`py-2 px-2.5 rounded-xl text-xs font-bold transition-all border text-center cursor-pointer ${
+                className={`py-2 px-2.5 rounded-xl text-xs font-bold transition-all border text-center cursor-pointer focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent ${
                   modoCobro === 'renovacion'
                     ? 'bg-accent text-ink-on-accent border-accent'
                     : 'bg-surface-sunken text-text-secondary border-border-default hover:text-text-primary'
@@ -353,7 +353,7 @@ export const RenewMemberModal: React.FC<RenewMemberModalProps> = ({
               <button
                 type="button"
                 onClick={() => handleModoCobroChange('saldar_deuda')}
-                className={`py-2 px-2.5 rounded-xl text-xs font-bold transition-all border text-center cursor-pointer ${
+                className={`py-2 px-2.5 rounded-xl text-xs font-bold transition-all border text-center cursor-pointer focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent ${
                   modoCobro === 'saldar_deuda'
                     ? 'bg-status-warn text-ink-on-accent border-status-warn'
                     : 'bg-surface-sunken text-status-warn border-status-warn-border hover:bg-status-warn-soft'
@@ -372,7 +372,7 @@ export const RenewMemberModal: React.FC<RenewMemberModalProps> = ({
               <select
                 value={disciplina}
                 onChange={(e) => handleDisciplineChange(e.target.value)}
-                className="w-full h-11 bg-surface-sunken border border-border-default rounded-xl px-3.5 text-sm text-text-primary focus:border-accent focus:outline-none appearance-none cursor-pointer transition-colors"
+                className="w-full h-11 bg-surface-sunken border border-border-default rounded-xl px-3.5 text-sm text-text-primary focus:border-accent focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent appearance-none cursor-pointer transition-colors"
               >
                 {disciplina && !disciplines.some((d) => d.nombre === disciplina) && (
                   <option value={disciplina} className="bg-surface-100 text-text-primary">
@@ -419,7 +419,7 @@ export const RenewMemberModal: React.FC<RenewMemberModalProps> = ({
                   setMontoEfectivo(val);
                 }
               }}
-              className="pl-8 text-2xl font-extrabold font-mono h-14"
+              className="pl-8 text-2xl font-extrabold h-14"
               placeholder="0"
             />
           </div>
@@ -498,7 +498,7 @@ export const RenewMemberModal: React.FC<RenewMemberModalProps> = ({
             <div className="bg-surface-sunken border border-border-default rounded-xl p-3.5 space-y-3">
               <div className="text-[11px] text-text-muted flex items-center justify-between pb-1 border-b border-border-subtle">
                 <span>Indicá cuánto abona con cada método:</span>
-                <span className="font-mono text-text-primary">
+                <span className="text-text-primary">
                   Total: <strong>{formatMoney(montoAbonado)}</strong>
                 </span>
               </div>
@@ -548,7 +548,6 @@ export const RenewMemberModal: React.FC<RenewMemberModalProps> = ({
                   <div className="flex items-center gap-1.5 flex-1">
                     <Input
                       variant="admin"
-                      mono
                       type="number"
                       min="0"
                       step="100"
@@ -562,7 +561,7 @@ export const RenewMemberModal: React.FC<RenewMemberModalProps> = ({
                         variant="secondary"
                         size="md"
                         onClick={() => autoCompletarResto(item.id)}
-                        className="h-9 px-2 text-[11px] font-mono whitespace-nowrap shrink-0"
+                        className="h-9 px-2 text-[11px] whitespace-nowrap shrink-0"
                         title="Asignar saldo restante"
                       >
                         Resto
@@ -581,7 +580,7 @@ export const RenewMemberModal: React.FC<RenewMemberModalProps> = ({
                 <span>
                   {desgloseValido ? '✓ Desglose balanceado:' : '⚠️ Diferencia en desglose:'}
                 </span>
-                <span className="font-mono">
+                <span>
                   Suma: {formatMoney(sumaDesglose)}{' '}
                   {diferenciaDesglose !== 0 && (
                     <span className="text-status-warn">

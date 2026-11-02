@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Html5Qrcode } from 'html5-qrcode';
 import { Member, AccessLog } from '../types';
-import { getCalculatedStatus } from '../lib/dateUtils';
 import { getMembershipTone, TONE_CLASSES, formatMoney } from '../lib/status';
 import { playSuccessChime, playWarningBeep } from '../lib/sound';
 import { Drawer, Button, Input, MemberAvatar } from './ui';
@@ -45,10 +44,8 @@ export const QrScannerModal: React.FC<QrScannerModalProps> = ({
 
     if (found) {
       setMatchedMember(found);
-      const status = getCalculatedStatus(found.fecha_vencimiento, found.estado_pago);
-      const isAuthorized =
-        status.membershipStatus !== 'vencido' &&
-        (found.estado_pago === 'pagado' || found.estado_pago === 'parcial');
+      const membership = getMembershipTone(found);
+      const isAuthorized = membership.status !== 'vencido';
 
       if (isAuthorized) {
         playSuccessChime();
@@ -221,10 +218,7 @@ export const QrScannerModal: React.FC<QrScannerModalProps> = ({
             {matchedMember ? (
               (() => {
                 const membership = getMembershipTone(matchedMember);
-                const isAuthorized =
-                  membership.status !== 'vencido' &&
-                  (matchedMember.estado_pago === 'pagado' ||
-                    matchedMember.estado_pago === 'parcial');
+                const isAuthorized = membership.status !== 'vencido';
 
                 const toneType: 'ok' | 'danger' = isAuthorized ? 'ok' : 'danger';
                 const tone = TONE_CLASSES[toneType];
@@ -279,7 +273,7 @@ export const QrScannerModal: React.FC<QrScannerModalProps> = ({
                       <div className="pt-3 border-t border-border-subtle flex items-center justify-between">
                         <div>
                           <span
-                            className={`text-2xl font-bold font-mono tracking-wide ${tone.text}`}
+                            className={`text-2xl font-bold tracking-wide ${tone.text}`}
                           >
                             {isAuthorized ? 'Autorizado' : 'Denegado'}
                           </span>
@@ -306,7 +300,7 @@ export const QrScannerModal: React.FC<QrScannerModalProps> = ({
             ) : (
               /* Código inexistente: "Código no encontrado" con Button "Reintentar" */
               <div className="text-center py-8 space-y-4 bg-surface-100 rounded-[20px] border border-border-subtle p-5">
-                <div className="text-lg font-bold text-text-primary font-mono">
+                <div className="text-lg font-bold text-text-primary">
                   Código no encontrado
                 </div>
                 <p className="text-xs text-text-muted font-mono break-all px-2">

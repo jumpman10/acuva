@@ -166,7 +166,6 @@ export const DisciplineConfigModal: React.FC<DisciplineConfigModalProps> = ({
                     />
                     <Input
                       variant="admin"
-                      mono
                       type="number"
                       min="1"
                       step="500"
@@ -212,7 +211,7 @@ export const DisciplineConfigModal: React.FC<DisciplineConfigModalProps> = ({
                   <p className="font-bold text-text-primary text-sm truncate capitalize">
                     {item.nombre}
                   </p>
-                  <p className="font-mono text-xs text-text-secondary mt-0.5">
+                  <p className="text-xs text-text-secondary mt-0.5">
                     {formatMoney(item.precio)} / mes
                   </p>
                 </div>
@@ -261,7 +260,6 @@ export const DisciplineConfigModal: React.FC<DisciplineConfigModalProps> = ({
               />
               <Input
                 variant="admin"
-                mono
                 type="number"
                 min="1"
                 step="500"
