@@ -1,0 +1,10 @@
+{
+  "name": "Acuva",
+  "description": "Plataforma de gestión de gimnasio con carnets virtuales QR, control de accesos, membresías y recordatorios WhatsApp.",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
