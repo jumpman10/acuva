@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Member, DisciplineItem, PaymentStatus, PaymentMethod, MembershipStatus } from '../types';
+import { Member, DisciplineItem, PaymentStatus, PaymentMethod, MembershipStatus, Local } from '../types';
 import { calculateNextExpiration, formatDateISO } from '../lib/dateUtils';
 import { processCarnetPhoto } from '../lib/imageUtils';
 import { deleteMember } from '../lib/storage';
+import { registerMemberByLocal, getCurrentLocal } from '../lib/authService';
 import { CameraCaptureModal } from './CameraCaptureModal';
 import { Drawer, Button, Field, Input, MemberAvatar } from './ui';
 import { Camera, Upload, Trash2, AlertCircle } from 'lucide-react';
@@ -14,6 +15,7 @@ export interface MemberModalProps {
   member?: Member | null;
   disciplines: DisciplineItem[];
   onDelete?: (id: string) => Promise<void>;
+  currentLocal?: Local | { id: string } | null;
 }
 
 const PAYMENT_METHODS: PaymentMethod[] = [
@@ -31,9 +33,9 @@ export const MemberModal: React.FC<MemberModalProps> = ({
   member,
   disciplines,
   onDelete,
+  currentLocal,
 }) => {
-  const [nombre, setNombre] = useState('');
-  const [apellido, setApellido] = useState('');
+  const [name, setName] = useState('');
   const [dni, setDni] = useState('');
   const [fechaNacimiento, setFechaNacimiento] = useState('');
   const [telefono, setTelefono] = useState('');
@@ -58,11 +60,14 @@ export const MemberModal: React.FC<MemberModalProps> = ({
 
   useEffect(() => {
     if (member) {
-      setNombre(member.nombre);
-      setApellido(member.apellido);
+      const initialName =
+        member.full_name ||
+        [member.nombre, member.apellido].filter(Boolean).join(' ') ||
+        '';
+      setName(initialName);
       setDni(member.dni);
       setFechaNacimiento(member.fecha_nacimiento || '');
-      setTelefono(member.telefono);
+      setTelefono(member.phone || member.telefono || '');
       setDisciplina(member.disciplina);
       setFechaIngreso(member.fecha_ingreso);
       setFechaVencimiento(member.fecha_vencimiento);
@@ -75,11 +80,10 @@ export const MemberModal: React.FC<MemberModalProps> = ({
     } else {
       const today = formatDateISO(new Date());
       const defaultDisc = disciplines[0] || { nombre: 'Musculación', precio: 28000 };
-      setNombre('');
-      setApellido('');
+      setName('');
       setDni('');
       setFechaNacimiento('');
-      setTelefono('+54 9 11 ');
+      setTelefono('');
       setDisciplina(defaultDisc.nombre);
       setFechaIngreso(today);
       setFechaVencimiento(calculateNextExpiration(today));
@@ -130,24 +134,46 @@ export const MemberModal: React.FC<MemberModalProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!nombre.trim() || !apellido.trim() || !dni.trim()) {
-      setFormError('Por favor completá Nombre, Apellido y DNI.');
+    const trimmedName = name.trim();
+    const trimmedDni = dni.trim();
+    const trimmedPhone = telefono.trim();
+
+    if (!trimmedName || !trimmedDni) {
+      setFormError('Por favor completá Nombre Completo y DNI.');
       return;
     }
 
     setLoading(true);
     setFormError(null);
     try {
+      // 1. Alta en Supabase Auth cuando se da de alta un nuevo socio
+      if (!member) {
+        const localObj = currentLocal || (await getCurrentLocal()) || { id: 'default-local' };
+        await registerMemberByLocal({
+          name: trimmedName,
+          dni: trimmedDni,
+          phone: trimmedPhone || undefined,
+          currentLocalId: localObj.id,
+        });
+      }
+
       const calculatedVencimiento = fechaVencimiento || calculateNextExpiration(fechaIngreso);
       const isConSaldo = estadoPago === 'saldo' || estadoPago === 'pendiente';
       const estadoMembresia: MembershipStatus = isConSaldo ? 'vencido' : 'activo';
 
+      // Derivar nombre y apellido para compatibilidad con vistas de carnet y tablas
+      const nameParts = trimmedName.split(/\s+/);
+      const derivedNombre = nameParts[0] || '';
+      const derivedApellido = nameParts.slice(1).join(' ') || '';
+
       await onSave({
-        nombre: nombre.trim(),
-        apellido: apellido.trim(),
-        dni: dni.trim(),
+        nombre: derivedNombre,
+        apellido: derivedApellido,
+        full_name: trimmedName,
+        dni: trimmedDni,
         fecha_nacimiento: fechaNacimiento.trim() || undefined,
-        telefono: telefono.trim(),
+        telefono: trimmedPhone,
+        phone: trimmedPhone,
         disciplina: disciplina || disciplines[0]?.nombre || 'Musculación',
         fecha_ingreso: fechaIngreso,
         fecha_vencimiento: calculatedVencimiento,
@@ -161,7 +187,14 @@ export const MemberModal: React.FC<MemberModalProps> = ({
         monto_mensual: Number(montoMensual),
         foto_url: fotoUrl.trim(),
         notas: notas.trim(),
+        is_claimed: false,
       });
+
+      // 2. Alerta de confirmación tras el registro exitoso
+      if (!member) {
+        alert('Socio registrado. Puede ingresar desde la app o web usando su DNI como usuario y contraseña');
+      }
+
       onClose();
     } catch (err: any) {
       console.error(err);
@@ -241,7 +274,7 @@ export const MemberModal: React.FC<MemberModalProps> = ({
             <div className="flex items-center gap-4">
               <MemberAvatar
                 src={fotoUrl}
-                name={`${nombre} ${apellido}`}
+                name={name || 'Nuevo socio'}
                 className="w-[72px] h-[72px] text-2xl shrink-0"
               />
               <div className="space-y-2 min-w-0 flex-1">
@@ -292,23 +325,13 @@ export const MemberModal: React.FC<MemberModalProps> = ({
 
           {/* Campos en grilla de 2 columnas en desktop */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-            <Field label="Nombre">
+            <Field label="Nombre Completo" className="sm:col-span-2">
               <Input
                 variant="admin"
                 required
-                value={nombre}
-                onChange={(e) => setNombre(e.target.value)}
-                placeholder="Ej. Marcos"
-              />
-            </Field>
-
-            <Field label="Apellido">
-              <Input
-                variant="admin"
-                required
-                value={apellido}
-                onChange={(e) => setApellido(e.target.value)}
-                placeholder="Ej. Maidana"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Ej. Marcos Maidana"
               />
             </Field>
 
@@ -323,7 +346,7 @@ export const MemberModal: React.FC<MemberModalProps> = ({
               />
             </Field>
 
-            <Field label="Teléfono / WhatsApp">
+            <Field label="Teléfono / WhatsApp" hint="Opcional">
               <Input
                 variant="admin"
                 mono
