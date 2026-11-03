@@ -22,26 +22,53 @@ export interface DisciplineItem {
 
 export type Discipline = string;
 
+export type UserRole = 'local' | 'miembro';
+
+export interface Profile {
+  id: string;
+  email: string;
+  role: UserRole;
+  full_name: string;
+  avatar_url?: string;
+  dni?: string;
+}
+
+export interface Local {
+  id: string;
+  profile_id: string;
+  email: string;
+  owner_name: string;
+  name: string;
+  address?: string;
+  phone?: string;
+  max_members: number;
+  plan: string;
+  linked_members_count: number;
+  avatar_url?: string;
+  members_id: string[];
+}
+
 export interface Member {
   id: string;
+  profile_id: string;
   dni: string;
-  nombre: string;
-  apellido: string;
-  fecha_nacimiento?: string; // YYYY-MM-DD
-  foto_url: string;
-  disciplina: Discipline;
-  telefono: string;
-  fecha_ingreso: string; // YYYY-MM-DD
-  fecha_vencimiento: string; // YYYY-MM-DD
-  estado_membresia: MembershipStatus;
-  estado_pago: PaymentStatus;
-  monto_mensual: number;
-  saldo_pendiente?: number;
-  metodo_pago?: PaymentMethod;
-  ultimo_pago_fecha?: string;
-  creado_en: string;
-  notas?: string;
-  codigo_qr: string; // token for verification
+  full_name: string;
+  email: string;
+  phone?: string;
+  avatar_url?: string;
+  is_claimed: boolean;
+  locals_id: string[];
+  status: 'active' | 'expiring' | 'expired' | 'unpaid';
+}
+
+export type Miembro = Member;
+
+export interface LocalMiembro {
+  id: string;
+  local_id: string;
+  miembro_id: string;
+  status: string;
+  joined_at: string;
 }
 
 export interface AccessLog {
@@ -66,8 +93,6 @@ export interface PaymentLog {
   detalles?: PaymentMethodDetail[];
   notas?: string;
 }
-
-export type UserRole = 'admin' | 'user';
 
 export interface CurrentUser {
   role: UserRole;
