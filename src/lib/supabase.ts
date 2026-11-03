@@ -63,6 +63,19 @@ export function getSupabase(): SupabaseClient | null {
   }
 }
 
+export const supabase: SupabaseClient = new Proxy({} as SupabaseClient, {
+  get(_target, prop) {
+    const client =
+      getSupabase() ||
+      createClient(
+        import.meta.env.VITE_SUPABASE_URL || '',
+        import.meta.env.VITE_SUPABASE_ANON_KEY || ''
+      );
+    const value = (client as any)[prop];
+    return typeof value === 'function' ? value.bind(client) : value;
+  },
+});
+
 export function resetSupabaseClient() {
   supabaseInstance = null;
 }
