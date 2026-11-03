@@ -50,15 +50,34 @@ export interface Local {
 
 export interface Member {
   id: string;
-  profile_id: string;
   dni: string;
-  full_name: string;
-  email: string;
+  nombre: string;
+  apellido: string;
+  fecha_nacimiento?: string; // YYYY-MM-DD
+  foto_url: string;
+  disciplina: Discipline;
+  telefono: string;
+  fecha_ingreso: string; // YYYY-MM-DD
+  fecha_vencimiento: string; // YYYY-MM-DD
+  estado_membresia: MembershipStatus;
+  estado_pago: PaymentStatus;
+  monto_mensual: number;
+  saldo_pendiente?: number;
+  metodo_pago?: PaymentMethod;
+  ultimo_pago_fecha?: string;
+  creado_en: string;
+  notas?: string;
+  codigo_qr: string; // token for verification
+
+  // Auth & multi-local profile fields
+  profile_id?: string;
+  full_name?: string;
+  email?: string;
   phone?: string;
   avatar_url?: string;
-  is_claimed: boolean;
-  locals_id: string[];
-  status: 'active' | 'expiring' | 'expired' | 'unpaid';
+  is_claimed?: boolean;
+  locals_id?: string[];
+  status?: 'active' | 'expiring' | 'expired' | 'unpaid';
 }
 
 export type Miembro = Member;

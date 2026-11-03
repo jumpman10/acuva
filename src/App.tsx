@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Member, AccessLog, PaymentLog, DisciplineItem, RenewMemberOptions } from './types';
+import { Member, AccessLog, PaymentLog, DisciplineItem, RenewMemberOptions, Local } from './types';
 import {
   fetchMembers,
   createMember,
@@ -14,6 +14,7 @@ import {
   fetchDisciplines,
 } from './lib/storage';
 import { getStoredSupabaseConfig, getSupabase, signOutAdmin, User } from './lib/supabase';
+import { getCurrentLocal } from './lib/authService';
 import { getDaysRemaining } from './lib/dateUtils';
 import { Navbar } from './components/Navbar';
 import { AdminDashboard } from './components/AdminDashboard';
@@ -33,6 +34,7 @@ import logo from './assets/logo.png';
 export default function App() {
   const [currentPath, setCurrentPath] = useState(window.location.pathname);
   const [adminUser, setAdminUser] = useState<User | null>(null);
+  const [currentLocal, setCurrentLocal] = useState<Local | null>(null);
   const [members, setMembers] = useState<Member[]>([]);
   const [accessLogs, setAccessLogs] = useState<AccessLog[]>([]);
   const [paymentLogs, setPaymentLogs] = useState<PaymentLog[]>([]);
@@ -113,12 +115,39 @@ export default function App() {
     }
   }, []);
 
+  useEffect(() => {
+    if (adminUser) {
+      getCurrentLocal().then((loc) => {
+        if (loc) {
+          setCurrentLocal(loc);
+        } else {
+          setCurrentLocal({
+            id: adminUser.id,
+            profile_id: adminUser.id,
+            email: adminUser.email || '',
+            owner_name: adminUser.user_metadata?.full_name || '',
+            name: adminUser.user_metadata?.local_name || 'Mi Gimnasio',
+            max_members: 100,
+            plan: 'standard',
+            linked_members_count: members.length,
+            members_id: members.map((m) => m.id),
+          });
+        }
+      });
+    } else {
+      setCurrentLocal(null);
+    }
+  }, [adminUser]);
+
   // Handlers
   const handleSaveMember = async (data: any) => {
     if (editingMember) {
       await updateMember(editingMember.id, data);
     } else {
-      await createMember(data);
+      const created = await createMember(data);
+      if (created) {
+        setMembers((prev) => [created, ...prev.filter((m) => m.id !== created.id && m.dni !== created.dni)]);
+      }
     }
     await loadData();
     setIsMemberModalOpen(false);
@@ -241,6 +270,7 @@ export default function App() {
           member={editingMember}
           disciplines={disciplines}
           onDelete={handleDeleteMember}
+          currentLocal={currentLocal}
         />
 
         <QrScannerModal

@@ -1,5 +1,5 @@
-import { supabase } from './supabase';
-import type { Session, User } from '@supabase/supabase-js';
+import { supabase, getStoredSupabaseConfig } from './supabase';
+import { createClient, type Session, type User } from '@supabase/supabase-js';
 import type { Profile, Local, Member, UserRole } from '../types';
 
 export interface RegisterLocalParams {
@@ -18,6 +18,13 @@ export interface RegisterMemberByWebParams {
   fullName: string;
   dni: string;
   phone?: string;
+}
+
+export interface RegisterMemberByLocalParams {
+  name: string;
+  dni: string;
+  phone?: string;
+  currentLocalId: string;
 }
 
 export interface LoginResult {
@@ -236,6 +243,113 @@ export async function registerMemberByWeb(data: RegisterMemberByWebParams) {
   }
 
   return authData;
+}
+
+/**
+ * Registers a new member from a local (gym) admin context.
+ * Creates the member in Supabase Auth using synthetic email and initial DNI password,
+ * with metadata specifying role, full_name, dni, phone, is_claimed: false, and created_by_local_id.
+ * Uses an isolated auth client (persistSession: false) so the current admin session is not lost.
+ */
+export async function registerMemberByLocal(data: RegisterMemberByLocalParams) {
+  const trimmedDni = data.dni.trim();
+  const email = `${trimmedDni}@acuva.app`;
+  const password = trimmedDni;
+  const trimmedPhone = data.phone?.trim() || undefined;
+
+  const { url, anonKey, isConfigured } = getStoredSupabaseConfig();
+  const supabaseUrl = url || import.meta.env.VITE_SUPABASE_URL || '';
+  const supabaseKey = anonKey || import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+
+  if (!isConfigured && !supabaseUrl) {
+    console.warn('Supabase no está configurado. Omitiendo registro en Supabase Auth.');
+    return null;
+  }
+
+  const authClient = (supabaseUrl && supabaseKey)
+    ? createClient(supabaseUrl, supabaseKey, {
+        auth: {
+          persistSession: false,
+          autoRefreshToken: false,
+          detectSessionInUrl: false,
+        },
+      })
+    : supabase;
+
+  const { data: authData, error } = await authClient.auth.signUp({
+    email,
+    password,
+    options: {
+      data: {
+        role: 'miembro',
+        full_name: data.name.trim(),
+        dni: trimmedDni,
+        phone: trimmedPhone,
+        is_claimed: false,
+        created_by_local_id: data.currentLocalId,
+      },
+    },
+  });
+
+  if (error) {
+    throw error;
+  }
+
+  return authData;
+}
+
+/**
+ * Loads the current local record for the active session, with fallback.
+ */
+export async function getCurrentLocal(): Promise<Local | null> {
+  const session = await getCurrentSession();
+  if (!session?.user) {
+    const cached = localStorage.getItem('acuva_current_local');
+    if (cached) {
+      try {
+        return JSON.parse(cached);
+      } catch {}
+    }
+    return null;
+  }
+
+  let { data: localData, error: localError } = await supabase
+    .from('locales')
+    .select('*')
+    .eq('profile_id', session.user.id)
+    .maybeSingle();
+
+  if (!localData && !localError) {
+    const { data: fallbackLocal } = await supabase
+      .from('locales')
+      .select('*')
+      .eq('id', session.user.id)
+      .maybeSingle();
+
+    if (fallbackLocal) {
+      localData = fallbackLocal;
+    }
+  }
+
+  if (localData) {
+    localStorage.setItem('acuva_current_local', JSON.stringify(localData));
+    return localData;
+  }
+
+  const defaultLocal: Local = {
+    id: session.user.id,
+    profile_id: session.user.id,
+    email: session.user.email || '',
+    owner_name: session.user.user_metadata?.full_name || '',
+    name: session.user.user_metadata?.local_name || 'Mi Gimnasio',
+    max_members: 100,
+    plan: 'standard',
+    linked_members_count: 0,
+    members_id: [],
+  };
+
+  localStorage.setItem('acuva_current_local', JSON.stringify(defaultLocal));
+  return defaultLocal;
 }
 
 /**
