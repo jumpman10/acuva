@@ -214,7 +214,7 @@ where a.local_id = b.local_id
 create unique index if not exists locales_miembros_local_miembro_key
   on public.locales_miembros (local_id, miembro_id);
 create index if not exists locales_miembros_miembro_idx on public.locales_miembros (miembro_id);
-create index if not exists accesos_local_idx on public.accesos (local_id, "timestamp" desc);
+create index if not exists accesos_local_idx on public.accesos (local_id);
 create index if not exists pagos_local_idx on public.pagos (local_id);
 
 -- ----------------------------------------------------------
@@ -725,6 +725,20 @@ grant execute on function public.update_local_slug(text) to authenticated;
 grant execute on function public.acuva_mi_local_id() to authenticated;
 grant execute on function public.acuva_mi_miembro_id() to authenticated;
 grant execute on function public.acuva_es_socio_de_mi_local(text) to authenticated;
+
+-- ----------------------------------------------------------
+-- 9. Lectura de locales_miembros
+--    Tu proyecto tiene rls_auto_enable: activa RLS en las tablas nuevas.
+--    Sin esta política la app no vería ningún vínculo.
+-- ----------------------------------------------------------
+alter table public.locales_miembros enable row level security;
+drop policy if exists acuva_lm_select on public.locales_miembros;
+create policy acuva_lm_select on public.locales_miembros
+  for select to authenticated
+  using (
+    local_id::text = public.acuva_mi_local_id()
+    or miembro_id::text = public.acuva_mi_miembro_id()
+  );
 
 -- Para revisar el resultado:
 -- select id, name, slug, linked_members_count, max_members from public.locales;
