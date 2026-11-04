@@ -45,7 +45,6 @@ export interface Local {
   plan: string;
   linked_members_count: number;
   avatar_url?: string;
-  members_id: string[];
   /** Segmento de URL público del local: acuva.com.ar/{slug} */
   slug?: string;
 }
@@ -59,8 +58,15 @@ export interface PublicLocal {
   is_full: boolean;
 }
 
+/**
+ * Socio dentro de un local: une la persona (tabla `miembros`) con su
+ * membresía en ese local (tabla `local_miembros`). `id` es el de la persona.
+ */
 export interface Member {
   id: string;
+  /** id de la fila en local_miembros */
+  membership_id?: string;
+  local_id?: string;
   dni: string;
   nombre: string;
   apellido: string;
@@ -87,18 +93,22 @@ export interface Member {
   phone?: string;
   avatar_url?: string;
   is_claimed?: boolean;
-  locals_id?: string[];
-  status?: 'active' | 'expiring' | 'expired' | 'unpaid';
 }
 
 export type Miembro = Member;
 
-export interface LocalMiembro {
+/** Fila de `miembros`: la persona, sin datos de ningún local. */
+export interface MemberProfile {
   id: string;
-  local_id: string;
-  miembro_id: string;
-  status: string;
-  joined_at: string;
+  profile_id: string;
+  email?: string | null;
+  full_name?: string | null;
+  phone?: string | null;
+  avatar_url?: string | null;
+  dni?: string | null;
+  is_claimed?: boolean | null;
+  fecha_nacimiento?: string | null;
+  created_at?: string;
 }
 
 export interface AccessLog {
@@ -122,12 +132,6 @@ export interface PaymentLog {
   periodo_fin: string;
   detalles?: PaymentMethodDetail[];
   notas?: string;
-}
-
-export interface CurrentUser {
-  role: UserRole;
-  member?: Member;
-  email?: string;
 }
 
 export interface RenewMemberOptions {

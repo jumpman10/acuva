@@ -48,7 +48,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       return <PageLoader label="Abriendo tu carnet..." />;
     }
 
-    const firstName = session.member?.nombre || session.profile.full_name?.split(' ')[0] || '';
+    const firstName = (session.member?.full_name || session.profile.full_name || '').trim().split(/\s+/)[0] || '';
 
     return (
       <PortalColumn>

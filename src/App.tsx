@@ -7,11 +7,9 @@ import {
   deleteMember,
   renewMemberMembership,
   logAccess,
-  getAccessLogs,
   fetchAccessLogs,
   fetchPaymentLogs,
   fetchDisciplines,
-  linkMemberToLocal,
   setActiveLocalId,
   clearCachedData,
 } from './lib/storage';
@@ -60,6 +58,7 @@ export default function App() {
   const [paymentLogs, setPaymentLogs] = useState<PaymentLog[]>([]);
   const [disciplines, setDisciplines] = useState<DisciplineItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [dataError, setDataError] = useState<string | null>(null);
   const [cupoNotice, setCupoNotice] = useState<string | null>(null);
 
   // Modals for Admin
@@ -193,8 +192,10 @@ export default function App() {
       setAccessLogs(accs);
       setPaymentLogs(pays);
       setDisciplines(discs);
+      setDataError(null);
     } catch (err) {
       console.error('Error loading data', err);
+      setDataError(authErrorMessage(err, 'No pudimos cargar los datos de tu gimnasio.'));
     } finally {
       setLoading(false);
     }
@@ -221,6 +222,11 @@ export default function App() {
       if (cancelled) return;
       setCurrentLocal(loc);
       setActiveLocalId(loc ? String(loc.id) : null);
+      if (!loc) {
+        setDataError('No encontramos el gimnasio de esta cuenta. Escribinos para revisarlo.');
+        setLoading(false);
+        return;
+      }
       await loadData();
     })();
 
@@ -243,16 +249,16 @@ export default function App() {
   };
 
   const handleSaveMember = async (data: any) => {
-    if (editingMember) {
-      await updateMember(editingMember.id, data);
-    } else {
-      const created = await createMember(data);
-      try {
-        await linkMemberToLocal(created.id);
-      } catch (err) {
-        await refreshLocal();
-        throw new Error(authErrorMessage(err, 'No se pudo vincular el socio a tu local.'));
+    try {
+      if (editingMember) {
+        await updateMember(editingMember.id, data);
+      } else {
+        // La cuenta y el vínculo ya los creó el alta (MemberModal → registerMemberByLocal)
+        await createMember(data);
       }
+    } catch (err) {
+      await Promise.all([loadData(), refreshLocal()]);
+      throw new Error(authErrorMessage(err, 'No se pudo guardar el socio.'));
     }
     await Promise.all([loadData(), refreshLocal()]);
     setIsMemberModalOpen(false);
@@ -270,8 +276,13 @@ export default function App() {
   };
 
   const handleLogAccess = async (logData: Omit<AccessLog, 'id' | 'timestamp'>) => {
-    await logAccess(logData);
-    setAccessLogs(getAccessLogs());
+    try {
+      const saved = await logAccess(logData);
+      setAccessLogs((prev) => [saved, ...prev]);
+    } catch (err) {
+      console.error('No se pudo registrar el acceso', err);
+      setDataError(authErrorMessage(err, 'No se pudo registrar el ingreso.'));
+    }
   };
 
   const supabaseModal = (
@@ -328,6 +339,24 @@ export default function App() {
               <>
                 {currentLocal && (
                   <LocalLinkCard local={currentLocal} onLocalUpdated={setCurrentLocal} />
+                )}
+
+                {dataError && (
+                  <Alert className="mb-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <span>{dataError}</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDataError(null);
+                          loadData();
+                        }}
+                        className="shrink-0 underline font-semibold cursor-pointer rounded focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
+                      >
+                        Reintentar
+                      </button>
+                    </div>
+                  </Alert>
                 )}
 
                 {cupoNotice && (

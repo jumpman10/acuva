@@ -153,7 +153,7 @@ export const LocalPortalPage: React.FC<LocalPortalPageProps> = ({
     if (isLinked && session.member) {
       return (
         <MemberPortal
-          member={session.member}
+          person={session.member}
           local={local}
           hasOtherLocales={session.activeLocales.length > 1}
           onSwitchLocal={() => onNavigate('/login')}
@@ -162,7 +162,7 @@ export const LocalPortalPage: React.FC<LocalPortalPageProps> = ({
       );
     }
 
-    const firstName = session.member?.nombre || session.profile.full_name?.split(' ')[0] || '';
+    const firstName = (session.member?.full_name || session.profile.full_name || '').trim().split(/\s+/)[0] || '';
 
     return (
       <PortalColumn>

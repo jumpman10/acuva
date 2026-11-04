@@ -1,16 +1,17 @@
 import React, { useEffect, useState } from 'react';
-import { Member, AccessLog, PublicLocal } from '../types';
+import { Member, MemberProfile, AccessLog, PublicLocal } from '../types';
 import { VirtualCard } from './VirtualCard';
 import { getMembershipTone, formatMoney } from '../lib/status';
-import { fetchMemberAccessLogs } from '../lib/storage';
+import { fetchMemberAccessLogs, fetchMyMembership } from '../lib/storage';
 import { supabase } from '../lib/supabase';
 import { Button, Input, Field, Alert, Card } from './ui';
-import { LocalAvatar, PortalColumn, PortalFooter } from './PortalShell';
+import { LocalAvatar, PageLoader, PortalColumn, PortalFooter } from './PortalShell';
 import isologo from '../assets/isologo.png';
 import { ArrowLeftRight, Sparkles, X } from 'lucide-react';
 
 interface MemberPortalProps {
-  member: Member;
+  /** La persona con sesión; la membresía de este local se carga acá. */
+  person: MemberProfile;
   local: PublicLocal;
   /** El socio está en más de un local: muestra "Cambiar de gimnasio". */
   hasOtherLocales: boolean;
@@ -43,17 +44,19 @@ function formatAccessDate(timestamp: string): string {
 
 /** Carnet del socio dentro del portal de un local (/{slug}). */
 export const MemberPortal: React.FC<MemberPortalProps> = ({
-  member,
+  person,
   local,
   hasOtherLocales,
   onSwitchLocal,
   onRefresh,
 }) => {
+  const [member, setMember] = useState<Member | null>(null);
+  const [memberError, setMemberError] = useState<string | null>(null);
   const [accessLogs, setAccessLogs] = useState<AccessLog[]>([]);
   const [logsLoading, setLogsLoading] = useState(true);
 
   // Personalización / reclamo de cuenta de socio
-  const [isClaimed, setIsClaimed] = useState<boolean>(member.is_claimed !== false);
+  const [isClaimed, setIsClaimed] = useState<boolean>(person.is_claimed !== false);
   const [isClaimModalOpen, setIsClaimModalOpen] = useState(false);
   const [newEmail, setNewEmail] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -61,23 +64,37 @@ export const MemberPortal: React.FC<MemberPortalProps> = ({
   const [claimError, setClaimError] = useState<string | null>(null);
 
   useEffect(() => {
-    setIsClaimed(member.is_claimed !== false);
-  }, [member.id, member.is_claimed]);
+    setIsClaimed(person.is_claimed !== false);
+  }, [person.id, person.is_claimed]);
 
   useEffect(() => {
     let cancelled = false;
+    setMember(null);
+    setMemberError(null);
     setLogsLoading(true);
-    fetchMemberAccessLogs(member.id, local.id)
+
+    fetchMyMembership(local.id, person.id)
+      .then((m) => {
+        if (cancelled) return;
+        if (m) setMember(m);
+        else setMemberError('No encontramos tu membresía en este gimnasio. Consultá en recepción.');
+      })
+      .catch(() => {
+        if (!cancelled) setMemberError('No pudimos cargar tu carnet. Probá de nuevo en un rato.');
+      });
+
+    fetchMemberAccessLogs(person.id, local.id)
       .then((logs) => {
         if (!cancelled) setAccessLogs(logs);
       })
       .finally(() => {
         if (!cancelled) setLogsLoading(false);
       });
+
     return () => {
       cancelled = true;
     };
-  }, [member.id, local.id]);
+  }, [person.id, local.id]);
 
   const handleClaimAccount = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -123,6 +140,19 @@ export const MemberPortal: React.FC<MemberPortalProps> = ({
     }
   };
 
+  if (memberError) {
+    return (
+      <PortalColumn>
+        <Alert>{memberError}</Alert>
+        <PortalFooter />
+      </PortalColumn>
+    );
+  }
+
+  if (!member) {
+    return <PageLoader label="Cargando tu carnet..." />;
+  }
+
   const tone = getMembershipTone(member);
 
   return (
@@ -133,7 +163,7 @@ export const MemberPortal: React.FC<MemberPortalProps> = ({
         <div className="min-w-0 flex-1">
           <p className="text-[13px] font-semibold text-text-muted truncate">{local.name}</p>
           <h1 className="text-[24px] font-extrabold text-text-primary leading-tight truncate">
-            Hola, {member.nombre}
+            Hola, {member.nombre || 'socio'}
           </h1>
         </div>
         {hasOtherLocales && (

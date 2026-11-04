@@ -1,6 +1,6 @@
 import { supabase, getStoredSupabaseConfig } from './supabase';
 import { createClient, type Session, type User } from '@supabase/supabase-js';
-import type { Profile, Local, Member, UserRole, PublicLocal } from '../types';
+import type { Profile, Local, MemberProfile, UserRole, PublicLocal } from '../types';
 
 export interface RegisterLocalParams {
   email: string;
@@ -24,7 +24,6 @@ export interface RegisterMemberByLocalParams {
   name: string;
   dni: string;
   phone?: string;
-  currentLocalId: string;
 }
 
 /** Todo lo que la app necesita saber del usuario con sesión. */
@@ -33,7 +32,8 @@ export interface UserContext {
   profile: Profile;
   role: UserRole;
   local: Local | null;
-  member: Member | null;
+  /** La persona (tabla miembros). La membresía de cada local se carga aparte. */
+  member: MemberProfile | null;
   activeLocales: Local[];
 }
 
@@ -71,7 +71,7 @@ export async function login(identifier: string, password: string): Promise<Login
 /**
  * Carga profile, rol y relaciones del usuario autenticado.
  * - role 'local': su fila en `locales`.
- * - role 'miembro': su ficha en `miembros` y los locales donde está activo.
+ * - role 'miembro': su persona en `miembros` y los locales donde está activo.
  */
 export async function resolveUserContext(user: User): Promise<UserContext> {
   const { data: profile, error: profileError } = await supabase
@@ -85,14 +85,14 @@ export async function resolveUserContext(user: User): Promise<UserContext> {
   }
 
   let local: Local | null = null;
-  let member: Member | null = null;
+  let member: MemberProfile | null = null;
   let activeLocales: Local[] = [];
 
   if (profile.role === 'local') {
     local = await fetchOwnLocal(user.id);
   } else if (profile.role === 'miembro') {
-    member = await fetchOwnMember(user.id, profile.dni);
-    activeLocales = member ? await fetchActiveLocalesForMember(member) : [];
+    member = await fetchOwnMember(user.id);
+    activeLocales = member ? await fetchActiveLocalesForMember(member.id) : [];
   }
 
   return {
@@ -120,7 +120,7 @@ export async function getSessionContext(): Promise<UserContext | null> {
 }
 
 async function fetchOwnLocal(userId: string): Promise<Local | null> {
-  const { data: byProfile, error } = await supabase
+  const { data, error } = await supabase
     .from('locales')
     .select('*')
     .eq('profile_id', userId)
@@ -129,85 +129,39 @@ async function fetchOwnLocal(userId: string): Promise<Local | null> {
   if (error) {
     console.error('Error al cargar la información del local:', error);
   }
-  if (byProfile) {
-    return byProfile as Local;
-  }
-
-  const { data: byId } = await supabase
-    .from('locales')
-    .select('*')
-    .eq('id', userId)
-    .maybeSingle();
-
-  return (byId as Local) || null;
+  return (data as Local) || null;
 }
 
-async function fetchOwnMember(userId: string, dni?: string): Promise<Member | null> {
-  const { data: byProfile, error } = await supabase
+async function fetchOwnMember(userId: string): Promise<MemberProfile | null> {
+  const { data, error } = await supabase
     .from('miembros')
     .select('*')
     .eq('profile_id', userId)
     .maybeSingle();
 
   if (error) {
-    console.error('Error al cargar los datos del miembro:', error);
+    console.error('Error al cargar los datos del socio:', error);
   }
-  if (byProfile) {
-    return byProfile as Member;
-  }
-
-  if (dni) {
-    const { data: byDni } = await supabase
-      .from('miembros')
-      .select('*')
-      .eq('dni', dni)
-      .maybeSingle();
-    if (byDni) {
-      return byDni as Member;
-    }
-  }
-
-  const { data: byId } = await supabase
-    .from('miembros')
-    .select('*')
-    .eq('id', userId)
-    .maybeSingle();
-
-  return (byId as Member) || null;
+  return (data as MemberProfile) || null;
 }
 
-async function fetchActiveLocalesForMember(member: Member): Promise<Local[]> {
-  const localIds = new Set<string>();
+async function fetchActiveLocalesForMember(memberId: string): Promise<Local[]> {
+  const { data: relations, error } = await supabase
+    .from('local_miembros')
+    .select('local_id')
+    .eq('miembro_id', memberId)
+    .eq('status', 'activo');
 
-  try {
-    const { data: relations } = await supabase
-      .from('locales_miembros')
-      .select('local_id, status')
-      .eq('miembro_id', member.id)
-      .eq('status', 'active');
-
-    relations?.forEach((rel) => {
-      if (rel.local_id) localIds.add(String(rel.local_id));
-    });
-  } catch {
-    // La tabla relacional puede no existir todavía
-  }
-
-  // Compatibilidad con el array heredado miembros.locals_id
-  if (Array.isArray(member.locals_id)) {
-    member.locals_id.forEach((id) => localIds.add(String(id)));
-  }
-
-  if (localIds.size === 0) {
+  if (error || !relations || relations.length === 0) {
     return [];
   }
 
-  const { data: localesData, error } = await supabase
+  const { data: localesData, error: localesError } = await supabase
     .from('locales')
     .select('*')
-    .in('id', Array.from(localIds));
+    .in('id', relations.map((r) => r.local_id));
 
-  if (error || !localesData) {
+  if (localesError || !localesData) {
     return [];
   }
 
@@ -310,35 +264,42 @@ export async function registerMemberByWeb(data: RegisterMemberByWebParams) {
 }
 
 /**
- * Registers a new member from a local (gym) admin context.
- * Creates the member in Supabase Auth using synthetic email and initial DNI password,
- * with metadata specifying role, full_name, dni, phone, is_claimed: false, and created_by_local_id.
- * Uses an isolated auth client (persistSession: false) so the current admin session is not lost.
+ * Alta de un socio desde el panel del local.
+ * 1) El local pide un token de un solo uso (prepare_member_signup), que
+ *    valida cupo y DNI.
+ * 2) Se crea la cuenta en Auth con email DNI@acuva.app y contraseña = DNI,
+ *    usando un cliente aislado para no perder la sesión del local.
+ * 3) El trigger handle_new_user crea la persona y la vincula al local.
  */
 export async function registerMemberByLocal(data: RegisterMemberByLocalParams) {
-  const trimmedDni = data.dni.trim();
+  const trimmedDni = data.dni.replace(/\D/g, '');
   const email = `${trimmedDni}@acuva.app`;
   const password = trimmedDni;
   const trimmedPhone = data.phone?.trim() || undefined;
 
-  const { url, anonKey, isConfigured } = getStoredSupabaseConfig();
+  const { url, anonKey } = getStoredSupabaseConfig();
   const supabaseUrl = url || import.meta.env.VITE_SUPABASE_URL || '';
   const supabaseKey = anonKey || import.meta.env.VITE_SUPABASE_ANON_KEY || '';
 
-  if (!isConfigured && !supabaseUrl) {
-    console.warn('Supabase no está configurado. Omitiendo registro en Supabase Auth.');
-    return null;
+  if (!supabaseUrl || !supabaseKey) {
+    throw new Error('La base de datos no está configurada.');
   }
 
-  const authClient = (supabaseUrl && supabaseKey)
-    ? createClient(supabaseUrl, supabaseKey, {
-        auth: {
-          persistSession: false,
-          autoRefreshToken: false,
-          detectSessionInUrl: false,
-        },
-      })
-    : supabase;
+  const { data: token, error: tokenError } = await supabase.rpc('prepare_member_signup', {
+    p_dni: trimmedDni,
+  });
+  if (tokenError) {
+    throw new Error(authErrorMessage(tokenError));
+  }
+
+  const authClient = createClient(supabaseUrl, supabaseKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+      detectSessionInUrl: false,
+      storageKey: 'acuva-alta-socio',
+    },
+  });
 
   const { data: authData, error } = await authClient.auth.signUp({
     email,
@@ -350,7 +311,7 @@ export async function registerMemberByLocal(data: RegisterMemberByLocalParams) {
         dni: trimmedDni,
         phone: trimmedPhone,
         is_claimed: false,
-        created_by_local_id: data.currentLocalId,
+        alta_token: token,
       },
     },
   });
@@ -361,7 +322,11 @@ export async function registerMemberByLocal(data: RegisterMemberByLocalParams) {
         'Ese DNI ya tiene cuenta en Acuva. Si es socio de otro gimnasio, pedile que escanee el QR de tu local para sumarse.'
       );
     }
-    throw error;
+    throw new Error(authErrorMessage(error));
+  }
+
+  if (!authData.user) {
+    throw new Error('No se pudo crear la cuenta del socio. Probá de nuevo.');
   }
 
   return authData;
@@ -372,30 +337,14 @@ export async function registerMemberByLocal(data: RegisterMemberByLocalParams) {
 // ---------------------------------------------------------------------------
 
 /**
- * Loads the current local record for the active session, with fallback.
+ * Carga el local de la sesión activa.
  */
 export async function getCurrentLocal(): Promise<Local | null> {
   const session = await getCurrentSession();
   if (!session?.user) {
     return null;
   }
-
-  const localData = await fetchOwnLocal(session.user.id);
-  if (localData) {
-    return localData;
-  }
-
-  return {
-    id: session.user.id,
-    profile_id: session.user.id,
-    email: session.user.email || '',
-    owner_name: session.user.user_metadata?.full_name || '',
-    name: session.user.user_metadata?.local_name || 'Mi Gimnasio',
-    max_members: 100,
-    plan: 'standard',
-    linked_members_count: 0,
-    members_id: [],
-  };
+  return fetchOwnLocal(session.user.id);
 }
 
 /**
@@ -436,6 +385,9 @@ export async function getCurrentUser(): Promise<User | null> {
 
 const RPC_MESSAGES: Record<string, string> = {
   CUPO_LLENO: 'Este local alcanzó el cupo de socios de su plan. Consultá en recepción.',
+  YA_ES_SOCIO: 'Esa persona ya es socia de tu gimnasio.',
+  DNI_INVALIDO: 'Revisá el DNI: tiene que tener entre 6 y 9 números.',
+  ALTA_INVALIDA: 'El alta venció o ya se usó. Volvé a intentarlo.',
   DNI_EN_OTRO_LOCAL:
     'Ese DNI ya es socio de otro gimnasio en Acuva. Pedile que escanee el QR de tu local para sumarse.',
   DNI_EN_USO:
@@ -471,6 +423,9 @@ export function authErrorMessage(err: unknown, fallback = 'Algo salió mal. Prob
   }
   if (raw.includes('Password should be at least')) {
     return 'La contraseña tiene que tener al menos 6 caracteres.';
+  }
+  if (raw.includes('Database error saving new user')) {
+    return 'No se pudo crear la cuenta. Puede que ese DNI ya esté registrado o que el gimnasio haya llegado a su cupo.';
   }
   if (raw.includes('Failed to fetch') || raw.includes('NetworkError')) {
     return 'No pudimos conectarnos. Revisá tu conexión y probá de nuevo.';
