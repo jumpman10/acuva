@@ -1,4 +1,5 @@
 import { createClient, SupabaseClient, User, Session } from '@supabase/supabase-js';
+import esquemaMultilocalSql from '../../supabase/01_esquema_multilocal.sql?raw';
 
 export type { User, Session };
 
@@ -141,77 +142,7 @@ export async function getCurrentAdminUser(): Promise<User | null> {
 }
 
 /**
- * SQL script for Supabase SQL Editor
+ * Script SQL para el editor de Supabase (crea o actualiza el esquema multi-local).
+ * Fuente única: supabase/01_esquema_multilocal.sql
  */
-export const SUPABASE_SQL_SCRIPT = `-- ==========================================
--- SCRIPT DE INICIALIZACIÓN: Acuva CARNET GYM
--- Ejecuta este script en el SQL Editor de tu proyecto Supabase
--- ==========================================
-
--- 1. Tabla de Miembros
-CREATE TABLE IF NOT EXISTS public.miembros (
-    id TEXT PRIMARY KEY,
-    dni TEXT UNIQUE NOT NULL,
-    nombre TEXT NOT NULL,
-    apellido TEXT NOT NULL,
-    fecha_nacimiento DATE,
-    foto_url TEXT,
-    disciplina TEXT NOT NULL,
-    telefono TEXT NOT NULL,
-    fecha_ingreso DATE NOT NULL,
-    fecha_vencimiento DATE NOT NULL,
-    estado_membresia TEXT NOT NULL DEFAULT 'activo',
-    estado_pago TEXT NOT NULL DEFAULT 'pagado',
-    monto_mensual NUMERIC DEFAULT 28000.00,
-    saldo_pendiente NUMERIC(10, 2) DEFAULT 0.00,
-    ultimo_pago_fecha DATE,
-    notas TEXT,
-    codigo_qr TEXT UNIQUE NOT NULL,
-    creado_en TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
-);
-
--- 2. Tabla de Registro de Accesos (Control QR)
-CREATE TABLE IF NOT EXISTS public.accesos (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    member_id TEXT REFERENCES public.miembros(id) ON DELETE CASCADE,
-    dni TEXT NOT NULL,
-    member_name TEXT NOT NULL,
-    disciplina TEXT NOT NULL,
-    timestamp TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
-    autorizado BOOLEAN NOT NULL DEFAULT true,
-    motivo TEXT
-);
-
--- 3. Tabla de Pagos / Renovaciones
-CREATE TABLE IF NOT EXISTS public.pagos (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    member_id TEXT REFERENCES public.miembros(id) ON DELETE CASCADE,
-    fecha DATE NOT NULL,
-    monto NUMERIC NOT NULL,
-    metodo TEXT NOT NULL DEFAULT 'Efectivo',
-    detalles JSONB DEFAULT '[]'::jsonb,
-    notas TEXT,
-    periodo_inicio DATE NOT NULL,
-    periodo_fin DATE NOT NULL,
-    creado_en TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
-);
-
--- 4. Tabla de Disciplinas y Tarifas Oficiales
-CREATE TABLE IF NOT EXISTS public.disciplinas (
-    id TEXT PRIMARY KEY,
-    nombre TEXT UNIQUE NOT NULL,
-    precio NUMERIC(10, 2) NOT NULL DEFAULT 28000.00,
-    creado_en TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
-);
-
--- Políticas de Seguridad RLS (Lectura y Escritura para la App)
-ALTER TABLE public.miembros ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.accesos ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.pagos ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.disciplinas ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Permitir todo acceso público a miembros" ON public.miembros FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Permitir todo acceso público a accesos" ON public.accesos FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Permitir todo acceso público a pagos" ON public.pagos FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Permitir todo acceso público a disciplinas" ON public.disciplinas FOR ALL USING (true) WITH CHECK (true);
-`;
+export const SUPABASE_SQL_SCRIPT: string = esquemaMultilocalSql;

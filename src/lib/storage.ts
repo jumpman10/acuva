@@ -1,26 +1,30 @@
-import { Member, AccessLog, PaymentLog, Discipline, DisciplineItem, PaymentMethod, PaymentMethodDetail, RenewMemberOptions, PaymentStatus } from '../types';
+import {
+  Member,
+  MemberProfile,
+  AccessLog,
+  PaymentLog,
+  DisciplineItem,
+  PaymentMethod,
+  PaymentMethodDetail,
+  RenewMemberOptions,
+  PaymentStatus,
+  MembershipStatus,
+} from '../types';
 import { calculateNextExpiration, formatDateISO } from './dateUtils';
 import { getSupabase } from './supabase';
+import type { SupabaseClient } from '@supabase/supabase-js';
 
-const STORAGE_KEY_MEMBERS = 'acuva_gym_members';
-const STORAGE_KEY_ACCESS = 'acuva_gym_access_logs';
-const STORAGE_KEY_PAYMENTS = 'acuva_gym_payments';
-const STORAGE_KEY_DISCIPLINES = 'acuva_gym_disciplines';
-
-// Migrate legacy ringo storage keys if present
-if (typeof window !== 'undefined' && window.localStorage) {
-  try {
-    ['members', 'access_logs', 'payments', 'disciplines'].forEach((suffix) => {
-      const oldVal = localStorage.getItem(`ringo_gym_${suffix}`);
-      const newKey = `acuva_gym_${suffix}`;
-      if (oldVal && !localStorage.getItem(newKey)) {
-        localStorage.setItem(newKey, oldVal);
-      }
-    });
-  } catch {
-    // Ignore storage migration errors
-  }
-}
+/**
+ * Capa de datos sobre el esquema multi-local de Supabase:
+ *
+ *   miembros        → persona (DNI, nombre, contacto, cuenta)
+ *   local_miembros  → membresía de esa persona en un local
+ *   accesos, pagos  → por local y socio
+ *   disciplinas     → por local
+ *
+ * La UI sigue trabajando con `Member`, `AccessLog` y `PaymentLog`;
+ * acá se traducen las filas de la base a esos tipos y viceversa.
+ */
 
 export const DEFAULT_DISCIPLINES: DisciplineItem[] = [
   { id: 'disc-1', nombre: 'Musculación', precio: 28000 },
@@ -33,198 +37,360 @@ export const DEFAULT_DISCIPLINES: DisciplineItem[] = [
   { id: 'disc-8', nombre: 'Pase Libre', precio: 45000 },
 ];
 
-export async function fetchDisciplines(): Promise<DisciplineItem[]> {
+// ---------------------------------------------------------------------------
+// Local activo
+// ---------------------------------------------------------------------------
+let activeLocalId: string | null = null;
+
+export function setActiveLocalId(id: string | null) {
+  activeLocalId = id;
+}
+
+export function getActiveLocalId(): string | null {
+  return activeLocalId;
+}
+
+/** Borra claves viejas del navegador (versiones anteriores guardaban datos acá). */
+export function clearCachedData() {
+  try {
+    [
+      'acuva_gym_members',
+      'acuva_gym_access_logs',
+      'acuva_gym_payments',
+      'acuva_gym_disciplines',
+      'acuva_current_local',
+    ].forEach((key) => localStorage.removeItem(key));
+  } catch {
+    // Ignore
+  }
+}
+
+function db(): SupabaseClient {
   const supabase = getSupabase();
-  if (supabase) {
-    try {
-      const { data, error } = await supabase.from('disciplinas').select('*').order('nombre');
-      if (!error && data && data.length > 0) {
-        localStorage.setItem(STORAGE_KEY_DISCIPLINES, JSON.stringify(data));
-        return data as DisciplineItem[];
-      }
-    } catch (e) {
-      console.warn('Could not fetch disciplines from Supabase', e);
-    }
+  if (!supabase) {
+    throw new Error('La base de datos no está configurada.');
   }
+  return supabase;
+}
 
-  const stored = localStorage.getItem(STORAGE_KEY_DISCIPLINES);
-  if (stored) {
-    try {
-      const parsed = JSON.parse(stored);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed as DisciplineItem[];
-      }
-    } catch (e) {
-      console.error('Error parsing stored disciplines', e);
-    }
+function requireLocal(): string {
+  if (!activeLocalId) {
+    throw new Error('No hay un local con sesión.');
   }
+  return activeLocalId;
+}
 
-  localStorage.setItem(STORAGE_KEY_DISCIPLINES, JSON.stringify(DEFAULT_DISCIPLINES));
-  return DEFAULT_DISCIPLINES;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// ---------------------------------------------------------------------------
+// Traducción de filas
+// ---------------------------------------------------------------------------
+interface MembershipRow {
+  id: string;
+  local_id: string;
+  miembro_id: string;
+  status: string;
+  joined_at: string;
+  disciplina: string | null;
+  monto_mensual: number | string | null;
+  fecha_ingreso: string;
+  fecha_vencimiento: string;
+  estado_membresia: string;
+  estado_pago: string;
+  saldo_pendiente: number | string | null;
+  ultimo_pago_fecha: string | null;
+  notas: string | null;
+  codigo_qr: string;
+  miembros: MemberProfile | MemberProfile[] | null;
+}
+
+const MEMBERSHIP_SELECT = '*, miembros(*)';
+
+function splitName(fullName: string): { nombre: string; apellido: string } {
+  const parts = fullName.trim().split(/\s+/).filter(Boolean);
+  return { nombre: parts[0] || '', apellido: parts.slice(1).join(' ') };
+}
+
+export function toMember(row: MembershipRow): Member {
+  const person = (Array.isArray(row.miembros) ? row.miembros[0] : row.miembros) || ({} as MemberProfile);
+  const fullName = person.full_name || '';
+  const { nombre, apellido } = splitName(fullName);
+
+  return {
+    id: row.miembro_id,
+    membership_id: row.id,
+    local_id: row.local_id,
+    dni: person.dni || '',
+    nombre,
+    apellido,
+    full_name: fullName,
+    fecha_nacimiento: person.fecha_nacimiento || undefined,
+    foto_url: person.avatar_url || '',
+    avatar_url: person.avatar_url || undefined,
+    telefono: person.phone || '',
+    phone: person.phone || undefined,
+    email: person.email || undefined,
+    profile_id: person.profile_id,
+    is_claimed: person.is_claimed ?? false,
+    disciplina: row.disciplina || 'Sin asignar',
+    fecha_ingreso: row.fecha_ingreso,
+    fecha_vencimiento: row.fecha_vencimiento,
+    estado_membresia: (row.estado_membresia || 'activo') as MembershipStatus,
+    estado_pago: (row.estado_pago || 'pendiente') as PaymentStatus,
+    monto_mensual: Number(row.monto_mensual || 0),
+    saldo_pendiente: Number(row.saldo_pendiente || 0),
+    ultimo_pago_fecha: row.ultimo_pago_fecha || undefined,
+    notas: row.notas || undefined,
+    codigo_qr: row.codigo_qr,
+    creado_en: row.joined_at,
+  };
+}
+
+interface AccessRow {
+  id: string;
+  local_id: string;
+  miembro_id: string;
+  status: string | null;
+  scanned_at: string;
+  notes: string | null;
+  disciplina: string | null;
+  miembros?: { full_name: string | null; dni: string | null } | { full_name: string | null; dni: string | null }[] | null;
+}
+
+function toAccessLog(row: AccessRow): AccessLog {
+  const person = Array.isArray(row.miembros) ? row.miembros[0] : row.miembros;
+  return {
+    id: row.id,
+    member_id: row.miembro_id,
+    dni: person?.dni || '',
+    member_name: person?.full_name || '',
+    disciplina: row.disciplina || '',
+    timestamp: row.scanned_at,
+    autorizado: row.status !== 'denegado',
+    motivo: row.notes || undefined,
+  };
+}
+
+interface PaymentRow {
+  id: string;
+  local_id: string;
+  miembro_id: string;
+  amount: number | string;
+  payment_method: string | null;
+  payment_date: string;
+  period_start: string | null;
+  expiration_date: string | null;
+  details: PaymentMethodDetail[] | null;
+  notes: string | null;
+}
+
+function toPaymentLog(row: PaymentRow): PaymentLog {
+  return {
+    id: row.id,
+    member_id: row.miembro_id,
+    fecha: (row.payment_date || '').slice(0, 10),
+    monto: Number(row.amount || 0),
+    metodo: row.payment_method || 'Efectivo',
+    periodo_inicio: row.period_start || (row.payment_date || '').slice(0, 10),
+    periodo_fin: row.expiration_date || '',
+    detalles: row.details && row.details.length > 0 ? row.details : undefined,
+    notas: row.notes || undefined,
+  };
+}
+
+/** Campos de la persona (tabla miembros) que puede editar el local. */
+function personUpdates(updates: Partial<Member>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  if (updates.full_name !== undefined) {
+    out.full_name = updates.full_name;
+  } else if (updates.nombre !== undefined || updates.apellido !== undefined) {
+    out.full_name = [updates.nombre, updates.apellido].filter(Boolean).join(' ');
+  }
+  if (updates.phone !== undefined || updates.telefono !== undefined) {
+    out.phone = updates.phone ?? updates.telefono ?? '';
+  }
+  if (updates.fecha_nacimiento !== undefined) {
+    out.fecha_nacimiento = updates.fecha_nacimiento || null;
+  }
+  if (updates.foto_url !== undefined || updates.avatar_url !== undefined) {
+    out.avatar_url = (updates.foto_url ?? updates.avatar_url) || null;
+  }
+  return out;
+}
+
+/** Campos de la membresía (tabla local_miembros). */
+function membershipUpdates(updates: Partial<Member>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  const keys = [
+    'disciplina',
+    'monto_mensual',
+    'fecha_ingreso',
+    'fecha_vencimiento',
+    'estado_membresia',
+    'estado_pago',
+    'saldo_pendiente',
+    'ultimo_pago_fecha',
+    'notas',
+  ] as const;
+  keys.forEach((key) => {
+    if (updates[key] !== undefined) {
+      out[key] = updates[key] === '' ? null : updates[key];
+    }
+  });
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// Disciplinas (por local)
+// ---------------------------------------------------------------------------
+export async function fetchDisciplines(): Promise<DisciplineItem[]> {
+  if (!activeLocalId) return DEFAULT_DISCIPLINES;
+
+  const { data, error } = await db()
+    .from('disciplinas')
+    .select('id, nombre, precio')
+    .eq('local_id', activeLocalId)
+    .order('nombre');
+
+  if (error) {
+    console.error('No se pudieron cargar las disciplinas', error);
+    return [];
+  }
+  return (data || []).map((d) => ({ id: d.id, nombre: d.nombre, precio: Number(d.precio) }));
 }
 
 export async function saveDiscipline(item: Omit<DisciplineItem, 'id'> & { id?: string }): Promise<DisciplineItem> {
-  const current = await fetchDisciplines();
-  let savedItem: DisciplineItem;
+  const localId = requireLocal();
+  const payload = { nombre: item.nombre.trim(), precio: Number(item.precio) };
 
-  if (item.id) {
-    savedItem = { id: item.id, nombre: item.nombre.trim(), precio: Number(item.precio) };
-    const index = current.findIndex(d => d.id === item.id);
-    if (index !== -1) {
-      current[index] = savedItem;
-    } else {
-      current.push(savedItem);
+  const query =
+    item.id && UUID_PATTERN.test(item.id)
+      ? db().from('disciplinas').update(payload).eq('id', item.id).eq('local_id', localId)
+      : db().from('disciplinas').insert([{ ...payload, local_id: localId }]);
+
+  const { data, error } = await query.select('id, nombre, precio').single();
+  if (error) {
+    if (error.code === '23505') {
+      throw new Error(`Ya existe una disciplina llamada «${payload.nombre}».`);
     }
-  } else {
-    savedItem = {
-      id: 'disc-' + Date.now().toString(36),
-      nombre: item.nombre.trim(),
-      precio: Number(item.precio),
-    };
-    current.push(savedItem);
+    throw error;
   }
-
-  localStorage.setItem(STORAGE_KEY_DISCIPLINES, JSON.stringify(current));
-
-  const supabase = getSupabase();
-  if (supabase) {
-    try {
-      await supabase.from('disciplinas').upsert([savedItem]);
-    } catch (e) {
-      console.warn('Could not save discipline to Supabase', e);
-    }
-  }
-
-  return savedItem;
+  return { id: data.id, nombre: data.nombre, precio: Number(data.precio) };
 }
 
 export async function deleteDiscipline(id: string): Promise<boolean> {
-  const current = await fetchDisciplines();
-  const filtered = current.filter(d => d.id !== id);
-  localStorage.setItem(STORAGE_KEY_DISCIPLINES, JSON.stringify(filtered));
-
-  const supabase = getSupabase();
-  if (supabase) {
-    try {
-      await supabase.from('disciplinas').delete().eq('id', id);
-    } catch (e) {
-      console.warn('Could not delete discipline from Supabase', e);
-    }
-  }
-
+  const localId = requireLocal();
+  const { error } = await db().from('disciplinas').delete().eq('id', id).eq('local_id', localId);
+  if (error) throw error;
   return true;
 }
 
-// Auto-purge legacy mock items from localStorage on initial load
-try {
-  const stored = localStorage.getItem(STORAGE_KEY_MEMBERS);
-  if (stored) {
-    const parsed = JSON.parse(stored);
-    if (Array.isArray(parsed)) {
-      const filtered = parsed.filter((m: any) => !['mem-1', 'mem-2', 'mem-3', 'mem-4', 'mem-5'].includes(m.id));
-      if (filtered.length !== parsed.length) {
-        localStorage.setItem(STORAGE_KEY_MEMBERS, JSON.stringify(filtered));
-      }
-    }
-  }
-} catch {
-  // Ignore
-}
-
-export function getLocalMembers(): Member[] {
-  const stored = localStorage.getItem(STORAGE_KEY_MEMBERS);
-  if (stored) {
-    try {
-      const parsed = JSON.parse(stored);
-      return Array.isArray(parsed)
-        ? parsed.filter((m: Member) => !['mem-1', 'mem-2', 'mem-3', 'mem-4', 'mem-5'].includes(m.id))
-        : [];
-    } catch (e) {
-      console.error('Error parsing stored members', e);
-    }
-  }
-  return [];
-}
-
+// ---------------------------------------------------------------------------
+// Socios del local
+// ---------------------------------------------------------------------------
 export async function fetchMembers(): Promise<Member[]> {
-  const supabase = getSupabase();
-  if (supabase) {
-    try {
-      const { data, error } = await supabase.from('miembros').select('*').order('creado_en', { ascending: false });
-      if (!error && data) {
-        const localOnly = getLocalMembers().filter(m => !data.some(d => d.id === m.id || d.dni === m.dni));
-        const combined = [...data, ...localOnly];
-        localStorage.setItem(STORAGE_KEY_MEMBERS, JSON.stringify(combined));
-        return combined as Member[];
-      }
-    } catch (err) {
-      console.warn('Supabase fetch failed, falling back to local storage', err);
-    }
+  const localId = requireLocal();
+  const { data, error } = await db()
+    .from('local_miembros')
+    .select(MEMBERSHIP_SELECT)
+    .eq('local_id', localId)
+    .eq('status', 'activo')
+    .order('joined_at', { ascending: false });
+
+  if (error) throw error;
+  return ((data || []) as MembershipRow[]).map(toMember);
+}
+
+async function fetchMember(memberId: string): Promise<Member | null> {
+  const localId = requireLocal();
+  const { data, error } = await db()
+    .from('local_miembros')
+    .select(MEMBERSHIP_SELECT)
+    .eq('local_id', localId)
+    .eq('miembro_id', memberId)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data ? toMember(data as MembershipRow) : null;
+}
+
+/** Membresía del socio con sesión en un local (portal del socio). */
+export async function fetchMyMembership(localId: string, memberId: string): Promise<Member | null> {
+  const { data, error } = await db()
+    .from('local_miembros')
+    .select(MEMBERSHIP_SELECT)
+    .eq('local_id', localId)
+    .eq('miembro_id', memberId)
+    .eq('status', 'activo')
+    .maybeSingle();
+
+  if (error) throw error;
+  return data ? toMember(data as MembershipRow) : null;
+}
+
+export type NewMemberData = Omit<Member, 'id' | 'codigo_qr' | 'creado_en' | 'fecha_vencimiento'> & {
+  fecha_vencimiento?: string;
+};
+
+/**
+ * Completa la ficha de un socio recién dado de alta desde el panel.
+ * La persona y el vínculo con el local ya los creó el trigger de alta
+ * (handle_new_user) al hacer el signUp con alta_token; acá se cargan los
+ * datos del formulario y, si pagó, el primer pago.
+ */
+export async function createMember(memberData: NewMemberData): Promise<Member> {
+  const localId = requireLocal();
+  if (!memberData.profile_id) {
+    throw new Error('No se pudo crear la cuenta del socio. Probá de nuevo.');
   }
 
-  return getLocalMembers();
-}
+  const { data: person, error: personError } = await db()
+    .from('miembros')
+    .select('id')
+    .eq('profile_id', memberData.profile_id)
+    .maybeSingle();
 
-export function saveLocalMembers(members: Member[]) {
-  localStorage.setItem(STORAGE_KEY_MEMBERS, JSON.stringify(members));
-}
+  if (personError) throw personError;
+  if (!person) {
+    throw new Error('La cuenta del socio se creó pero no quedó vinculada a tu local. Recargá la página.');
+  }
 
-export async function createMember(memberData: Omit<Member, 'id' | 'codigo_qr' | 'creado_en' | 'fecha_vencimiento'> & { fecha_vencimiento?: string }): Promise<Member> {
-  const id = 'mem-' + Date.now().toString(36) + Math.random().toString(36).substring(2, 6);
-  const now = new Date();
-
-  // Calculate expiration date automatically if not explicitly given
-  const calculatedVencimiento = memberData.fecha_vencimiento || calculateNextExpiration(memberData.fecha_ingreso);
-  const qrCode = `Acuva-${memberData.dni.trim()}-${Date.now().toString(36).toUpperCase()}`;
+  const fechaVencimiento = memberData.fecha_vencimiento || calculateNextExpiration(memberData.fecha_ingreso);
   const isPagado = memberData.estado_pago === 'pagado';
 
-  const newMember: Member = {
-    ...memberData,
-    id,
-    fecha_vencimiento: calculatedVencimiento,
-    codigo_qr: qrCode,
-    creado_en: now.toISOString(),
-    ultimo_pago_fecha: isPagado ? memberData.fecha_ingreso : undefined,
-  };
-
-  // 1. Save to Supabase
-  // CRITICAL: Strip 'metodo_pago' because it belongs to the 'pagos' table, not 'miembros' table
-  const supabase = getSupabase();
-  if (supabase) {
-    try {
-      const { metodo_pago, ...dbMember } = newMember;
-      let { error } = await supabase.from('miembros').insert([dbMember]);
-      if (error && (error.message?.includes('saldo_pendiente') || error.message?.includes('fecha_nacimiento') || error.code === '42703')) {
-        const { saldo_pendiente, fecha_nacimiento, ...safeMember } = dbMember;
-        const retry = await supabase.from('miembros').insert([safeMember]);
-        error = retry.error;
-      }
-      if (error) {
-        console.error('Error saving member to Supabase:', error);
-      }
-    } catch (err) {
-      console.warn('Error saving member to Supabase:', err);
-    }
+  const personPatch = personUpdates(memberData);
+  delete personPatch.full_name; // ya viene del signUp
+  if (Object.keys(personPatch).length > 0) {
+    const { error } = await db().from('miembros').update(personPatch).eq('id', person.id);
+    if (error) throw error;
   }
 
-  // 2. Save local
-  const current = getLocalMembers();
-  const updated = [newMember, ...current.filter(m => m.id !== id)];
-  saveLocalMembers(updated);
+  const { error: membershipError } = await db()
+    .from('local_miembros')
+    .update({
+      ...membershipUpdates({ ...memberData, fecha_vencimiento: fechaVencimiento }),
+      ultimo_pago_fecha: isPagado ? memberData.fecha_ingreso : null,
+    })
+    .eq('local_id', localId)
+    .eq('miembro_id', person.id);
+  if (membershipError) throw membershipError;
 
-  // 3. If paid upon registration, register initial payment log automatically
   if (isPagado) {
     await logPayment({
-      member_id: id,
-      fecha: newMember.fecha_ingreso,
-      monto: Number(newMember.monto_mensual),
+      member_id: person.id,
+      fecha: memberData.fecha_ingreso,
+      monto: Number(memberData.monto_mensual),
       metodo: (memberData.metodo_pago as PaymentMethod) || 'Efectivo',
-      periodo_inicio: newMember.fecha_ingreso,
-      periodo_fin: calculatedVencimiento,
+      periodo_inicio: memberData.fecha_ingreso,
+      periodo_fin: fechaVencimiento,
     });
   }
 
-  return newMember;
+  const created = await fetchMember(person.id);
+  if (!created) {
+    throw new Error('No encontramos al socio recién creado. Recargá la página.');
+  }
+  return created;
 }
 
 export async function updateMember(
@@ -232,77 +398,60 @@ export async function updateMember(
   updates: Partial<Member>,
   options?: { skipPaymentLog?: boolean }
 ): Promise<Member | null> {
-  const current = await fetchMembers();
-  const index = current.findIndex(m => m.id === id);
-  if (index === -1) return null;
+  const localId = requireLocal();
+  const previous = await fetchMember(id);
+  if (!previous) return null;
 
-  const previousMember = current[index];
-
-  // Recalculate expiration if join date changed
-  let updatedData = { ...current[index], ...updates };
+  const merged: Partial<Member> = { ...updates };
   if (updates.fecha_ingreso && !updates.fecha_vencimiento) {
-    updatedData.fecha_vencimiento = calculateNextExpiration(updates.fecha_ingreso);
+    merged.fecha_vencimiento = calculateNextExpiration(updates.fecha_ingreso);
   }
 
-  const becamePagado = updates.estado_pago === 'pagado' && previousMember.estado_pago !== 'pagado';
+  const becamePagado = updates.estado_pago === 'pagado' && previous.estado_pago !== 'pagado';
   if (becamePagado && !updates.ultimo_pago_fecha) {
-    updatedData.ultimo_pago_fecha = formatDateISO(new Date());
+    merged.ultimo_pago_fecha = formatDateISO(new Date());
   }
 
-  current[index] = updatedData;
-  saveLocalMembers(current);
-
-  const supabase = getSupabase();
-  if (supabase) {
-    try {
-      // Strip 'metodo_pago' from updates sent to 'miembros' table
-      const { metodo_pago, ...dbUpdates } = updates;
-      if (Object.keys(dbUpdates).length > 0) {
-        let { error } = await supabase.from('miembros').update(dbUpdates).eq('id', id);
-        if (error && (error.message?.includes('saldo_pendiente') || error.message?.includes('fecha_nacimiento') || error.code === '42703')) {
-          const { saldo_pendiente, fecha_nacimiento, ...safeUpdates } = dbUpdates;
-          const retry = await supabase.from('miembros').update(safeUpdates).eq('id', id);
-          error = retry.error;
-        }
-        if (error) {
-          console.error('Error updating member in Supabase:', error);
-        }
-      }
-    } catch (err) {
-      console.warn('Error updating member in Supabase:', err);
-    }
+  const personPatch = personUpdates(merged);
+  if (Object.keys(personPatch).length > 0) {
+    const { error } = await db().from('miembros').update(personPatch).eq('id', id);
+    if (error) throw error;
   }
 
-  // If status changed to 'pagado' and not explicitly skipped (e.g. during renewMemberMembership)
+  const membershipPatch = membershipUpdates(merged);
+  if (Object.keys(membershipPatch).length > 0) {
+    const { error } = await db()
+      .from('local_miembros')
+      .update(membershipPatch)
+      .eq('local_id', localId)
+      .eq('miembro_id', id);
+    if (error) throw error;
+  }
+
+  const updated = { ...previous, ...merged } as Member;
+
   if (becamePagado && !options?.skipPaymentLog) {
     const today = formatDateISO(new Date());
     await logPayment({
       member_id: id,
       fecha: today,
-      monto: Number(updatedData.monto_mensual) || 28000,
+      monto: Number(updated.monto_mensual) || 0,
       metodo: (updates.metodo_pago as PaymentMethod) || 'Efectivo',
       periodo_inicio: today,
-      periodo_fin: updatedData.fecha_vencimiento,
+      periodo_fin: updated.fecha_vencimiento,
     });
   }
 
-  return updatedData;
+  return updated;
 }
 
+/**
+ * Quita al socio del local. La persona solo se borra si no queda en otro
+ * local y nunca personalizó su cuenta (lo resuelve la base).
+ */
 export async function deleteMember(id: string): Promise<boolean> {
-  const current = await fetchMembers();
-  const filtered = current.filter(m => m.id !== id);
-  saveLocalMembers(filtered);
-
-  const supabase = getSupabase();
-  if (supabase) {
-    try {
-      await supabase.from('miembros').delete().eq('id', id);
-    } catch (err) {
-      console.warn('Error deleting member in Supabase:', err);
-    }
-  }
-
+  const { error } = await db().rpc('remove_member_from_local', { p_miembro_id: id });
+  if (error) throw error;
   return true;
 }
 
@@ -345,8 +494,7 @@ export async function renewMemberMembership(
     notas = optionsOrMonto.notas;
   }
 
-  const current = await fetchMembers();
-  const member = current.find(m => m.id === memberId);
+  const member = await fetchMember(memberId);
   if (!member) return null;
 
   const today = formatDateISO(new Date());
@@ -360,7 +508,6 @@ export async function renewMemberMembership(
       estado_pago: nuevoSaldo === 0 ? 'pagado' : 'parcial',
       ultimo_pago_fecha: renewalDate,
     };
-    if (metodo) updates.metodo_pago = metodo as PaymentMethod;
 
     const updated = await updateMember(memberId, updates, { skipPaymentLog: true });
 
@@ -368,7 +515,7 @@ export async function renewMemberMembership(
       member_id: memberId,
       fecha: renewalDate,
       monto: monto || 0,
-      metodo: metodo as any,
+      metodo: metodo as PaymentMethod,
       periodo_inicio: member.fecha_ingreso,
       periodo_fin: member.fecha_vencimiento,
       detalles: detalles && detalles.length > 0 ? detalles : undefined,
@@ -379,16 +526,11 @@ export async function renewMemberMembership(
   }
 
   // Case B: Membership renewal (full or partial)
-  const baseDate = member.fecha_vencimiento && member.fecha_vencimiento >= renewalDate
-    ? member.fecha_vencimiento
-    : renewalDate;
+  const baseDate =
+    member.fecha_vencimiento && member.fecha_vencimiento >= renewalDate ? member.fecha_vencimiento : renewalDate;
 
   const newExpiration = fechaVencimiento || calculateNextExpiration(baseDate);
-
-  const nuevoSaldo = saldoPendiente !== undefined
-    ? Math.max(0, saldoPendiente)
-    : 0;
-
+  const nuevoSaldo = saldoPendiente !== undefined ? Math.max(0, saldoPendiente) : 0;
   const nuevoEstadoPago: PaymentStatus = nuevoSaldo > 0 ? 'parcial' : 'pagado';
 
   const updates: Partial<Member> = {
@@ -405,22 +547,14 @@ export async function renewMemberMembership(
   if (monto !== undefined) {
     updates.monto_mensual = monto;
   }
-  if (metodo) {
-    updates.metodo_pago = metodo as PaymentMethod;
-  }
 
-  const updated = await updateMember(
-    memberId,
-    updates,
-    { skipPaymentLog: true }
-  );
+  const updated = await updateMember(memberId, updates, { skipPaymentLog: true });
 
-  // Log payment
   await logPayment({
     member_id: memberId,
     fecha: renewalDate,
-    monto: monto !== undefined ? monto : (member.monto_mensual || 28000),
-    metodo: metodo as any,
+    monto: monto !== undefined ? monto : member.monto_mensual || 0,
+    metodo: metodo as PaymentMethod,
     periodo_inicio: baseDate,
     periodo_fin: newExpiration,
     detalles: detalles && detalles.length > 0 ? detalles : undefined,
@@ -430,157 +564,99 @@ export async function renewMemberMembership(
   return updated;
 }
 
+// ---------------------------------------------------------------------------
+// Accesos
+// ---------------------------------------------------------------------------
+const ACCESS_SELECT = '*, miembros(full_name, dni)';
 
-// Access Logs
 export async function logAccess(log: Omit<AccessLog, 'id' | 'timestamp'>): Promise<AccessLog> {
-  const newLog: AccessLog = {
-    ...log,
-    id: 'acc-' + Date.now().toString(36),
-    timestamp: new Date().toISOString()
-  };
+  const localId = requireLocal();
+  const { data, error } = await db()
+    .from('accesos')
+    .insert([
+      {
+        local_id: localId,
+        miembro_id: log.member_id,
+        status: log.autorizado ? 'autorizado' : 'denegado',
+        notes: log.motivo || null,
+        disciplina: log.disciplina || null,
+      },
+    ])
+    .select(ACCESS_SELECT)
+    .single();
 
-  const currentLogs = getAccessLogs();
-  const updatedLogs = [newLog, ...currentLogs.slice(0, 100)];
-  localStorage.setItem(STORAGE_KEY_ACCESS, JSON.stringify(updatedLogs));
-
-  const supabase = getSupabase();
-  if (supabase) {
-    try {
-      await supabase.from('accesos').insert([{
-        member_id: newLog.member_id,
-        dni: newLog.dni,
-        member_name: newLog.member_name,
-        disciplina: newLog.disciplina,
-        autorizado: newLog.autorizado,
-        motivo: newLog.motivo || ''
-      }]);
-    } catch (e) {
-      console.warn('Could not save access log to Supabase', e);
-    }
-  }
-
-  return newLog;
+  if (error) throw error;
+  return toAccessLog(data as AccessRow);
 }
 
-export function getAccessLogs(): AccessLog[] {
-  const raw = localStorage.getItem(STORAGE_KEY_ACCESS);
-  if (!raw) return [];
-  try {
-    return JSON.parse(raw);
-  } catch {
+export async function fetchAccessLogs(limit = 100): Promise<AccessLog[]> {
+  const localId = requireLocal();
+  const { data, error } = await db()
+    .from('accesos')
+    .select(ACCESS_SELECT)
+    .eq('local_id', localId)
+    .order('scanned_at', { ascending: false })
+    .limit(limit);
+
+  if (error) throw error;
+  return ((data || []) as AccessRow[]).map(toAccessLog);
+}
+
+/** Últimos ingresos de un socio en un local (portal del socio). */
+export async function fetchMemberAccessLogs(memberId: string, localId: string, limit = 5): Promise<AccessLog[]> {
+  const { data, error } = await db()
+    .from('accesos')
+    .select('*')
+    .eq('local_id', localId)
+    .eq('miembro_id', memberId)
+    .order('scanned_at', { ascending: false })
+    .limit(limit);
+
+  if (error) {
+    console.warn('No se pudieron cargar los ingresos', error);
     return [];
   }
+  return ((data || []) as AccessRow[]).map(toAccessLog);
 }
 
-export async function fetchAccessLogs(): Promise<AccessLog[]> {
-  const supabase = getSupabase();
-  if (supabase) {
-    try {
-      const { data, error } = await supabase
-        .from('accesos')
-        .select('*')
-        .order('timestamp', { ascending: false })
-        .limit(100);
-      if (!error && data) {
-        localStorage.setItem(STORAGE_KEY_ACCESS, JSON.stringify(data));
-        return data as AccessLog[];
-      }
-    } catch (e) {
-      console.warn('Could not fetch access logs from Supabase', e);
-    }
-  }
-  return getAccessLogs();
-}
-
-// Payments
+// ---------------------------------------------------------------------------
+// Pagos
+// ---------------------------------------------------------------------------
 export async function logPayment(payment: Omit<PaymentLog, 'id'>): Promise<PaymentLog> {
-  let newPayment: PaymentLog = {
-    ...payment,
-    id: 'pay-' + Date.now().toString(36)
-  };
+  const localId = requireLocal();
+  const { data, error } = await db()
+    .from('pagos')
+    .insert([
+      {
+        local_id: localId,
+        miembro_id: payment.member_id,
+        amount: Number(payment.monto),
+        payment_method: payment.metodo,
+        // Mediodía en la hora del navegador: evita que la fecha cambie de día por la zona horaria
+        payment_date: payment.fecha ? new Date(`${payment.fecha}T12:00:00`).toISOString() : new Date().toISOString(),
+        period_start: payment.periodo_inicio || null,
+        expiration_date: payment.periodo_fin || null,
+        details: payment.detalles && payment.detalles.length > 0 ? payment.detalles : [],
+        notes: payment.notas || null,
+      },
+    ])
+    .select('*')
+    .single();
 
-  const stored = getPaymentLogs();
-  const updated = [newPayment, ...stored.filter(p => p.id !== newPayment.id)];
-  localStorage.setItem(STORAGE_KEY_PAYMENTS, JSON.stringify(updated));
-
-  const supabase = getSupabase();
-  if (supabase) {
-    try {
-      const payload: any = {
-        member_id: newPayment.member_id,
-        fecha: newPayment.fecha,
-        monto: Number(newPayment.monto),
-        metodo: newPayment.metodo,
-        periodo_inicio: newPayment.periodo_inicio,
-        periodo_fin: newPayment.periodo_fin,
-      };
-      if (newPayment.detalles && newPayment.detalles.length > 0) {
-        payload.detalles = newPayment.detalles;
-      }
-      if (newPayment.notas) {
-        payload.notas = newPayment.notas;
-      }
-
-      let { data, error } = await supabase.from('pagos').insert([payload]).select().single();
-
-      if (error && (error.message?.includes('detalles') || error.message?.includes('notas') || error.code === '42703')) {
-        delete payload.detalles;
-        delete payload.notas;
-        const retry = await supabase.from('pagos').insert([payload]).select().single();
-        data = retry.data;
-        error = retry.error;
-      }
-
-      if (error) {
-        console.error('Could not save payment to Supabase:', error);
-      } else if (data) {
-        newPayment = data as PaymentLog;
-        const currentStored = getPaymentLogs();
-        const replaced = currentStored.map(p =>
-          (p.id.startsWith('pay-') && p.member_id === data.member_id && p.fecha === data.fecha)
-            ? (data as PaymentLog)
-            : p
-        );
-        localStorage.setItem(STORAGE_KEY_PAYMENTS, JSON.stringify(replaced));
-      }
-    } catch (e) {
-      console.warn('Could not save payment to Supabase', e);
-    }
-  }
-
-  return newPayment;
+  if (error) throw error;
+  return toPaymentLog(data as PaymentRow);
 }
 
-export function getPaymentLogs(): PaymentLog[] {
-  const raw = localStorage.getItem(STORAGE_KEY_PAYMENTS);
-  if (!raw) return [];
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return [];
-  }
-}
+export async function fetchPaymentLogs(limit = 100): Promise<PaymentLog[]> {
+  const localId = requireLocal();
+  const { data, error } = await db()
+    .from('pagos')
+    .select('*')
+    .eq('local_id', localId)
+    .order('payment_date', { ascending: false })
+    .order('created_at', { ascending: false })
+    .limit(limit);
 
-export async function fetchPaymentLogs(): Promise<PaymentLog[]> {
-  const supabase = getSupabase();
-  if (supabase) {
-    try {
-      const { data, error } = await supabase
-        .from('pagos')
-        .select('*')
-        .order('creado_en', { ascending: false })
-        .limit(100);
-      if (!error && data) {
-        const localOnly = getPaymentLogs().filter(
-          p => p.id.startsWith('pay-') && !data.some(d => d.member_id === p.member_id && d.fecha === p.fecha)
-        );
-        const combined = [...data, ...localOnly];
-        localStorage.setItem(STORAGE_KEY_PAYMENTS, JSON.stringify(combined));
-        return combined as PaymentLog[];
-      }
-    } catch (e) {
-      console.warn('Could not fetch payment logs from Supabase', e);
-    }
-  }
-  return getPaymentLogs();
+  if (error) throw error;
+  return ((data || []) as PaymentRow[]).map(toPaymentLog);
 }

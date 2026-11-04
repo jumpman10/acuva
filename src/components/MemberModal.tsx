@@ -3,7 +3,7 @@ import { Member, DisciplineItem, PaymentStatus, PaymentMethod, MembershipStatus,
 import { calculateNextExpiration, formatDateISO } from '../lib/dateUtils';
 import { processCarnetPhoto } from '../lib/imageUtils';
 import { deleteMember } from '../lib/storage';
-import { registerMemberByLocal, getCurrentLocal } from '../lib/authService';
+import { registerMemberByLocal } from '../lib/authService';
 import { CameraCaptureModal } from './CameraCaptureModal';
 import { Drawer, Button, Field, Input, MemberAvatar } from './ui';
 import { Camera, Upload, Trash2, AlertCircle } from 'lucide-react';
@@ -33,7 +33,7 @@ export const MemberModal: React.FC<MemberModalProps> = ({
   member,
   disciplines,
   onDelete,
-  currentLocal,
+  currentLocal: _currentLocal,
 }) => {
   const [name, setName] = useState('');
   const [dni, setDni] = useState('');
@@ -147,14 +147,15 @@ export const MemberModal: React.FC<MemberModalProps> = ({
     setFormError(null);
     try {
       // 1. Alta en Supabase Auth cuando se da de alta un nuevo socio
+      let authProfileId: string | undefined;
       if (!member) {
-        const localObj = currentLocal || (await getCurrentLocal()) || { id: 'default-local' };
-        await registerMemberByLocal({
+        // Crea la cuenta DNI@acuva.app; la base la vincula a tu local (con control de cupo)
+        const authData = await registerMemberByLocal({
           name: trimmedName,
           dni: trimmedDni,
           phone: trimmedPhone || undefined,
-          currentLocalId: localObj.id,
         });
+        authProfileId = authData.user?.id;
       }
 
       const calculatedVencimiento = fechaVencimiento || calculateNextExpiration(fechaIngreso);
@@ -188,6 +189,7 @@ export const MemberModal: React.FC<MemberModalProps> = ({
         foto_url: fotoUrl.trim(),
         notas: notas.trim(),
         is_claimed: false,
+        ...(authProfileId ? { profile_id: authProfileId } : {}),
       });
 
       // 2. Alerta de confirmación tras el registro exitoso
@@ -335,14 +337,16 @@ export const MemberModal: React.FC<MemberModalProps> = ({
               />
             </Field>
 
-            <Field label="DNI">
+            <Field label="DNI" hint={member ? 'Es el usuario del socio, no se puede cambiar' : undefined}>
               <Input
                 variant="admin"
                 mono
                 required
+                inputMode="numeric"
                 value={dni}
                 onChange={(e) => setDni(e.target.value)}
                 placeholder="40123456"
+                disabled={Boolean(member)}
               />
             </Field>
 
