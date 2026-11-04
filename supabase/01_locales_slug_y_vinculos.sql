@@ -126,37 +126,46 @@ end $$;
 
 -- ----------------------------------------------------------
 -- 3. Tabla de vínculos local ↔ socio y local_id en accesos/pagos
---    (usa el mismo tipo de dato que locales.id)
+--    (usa los mismos tipos de dato que locales.id y miembros.id)
 -- ----------------------------------------------------------
 do $$
 declare
-  v_tipo_local   text;
-  v_tipo_miembro text;
+  v_tipo_local      text;
+  v_tipo_miembro    text;
+  v_tipo_lm_miembro text;
 begin
   select format_type(a.atttypid, a.atttypmod) into v_tipo_local
   from pg_attribute a
   where a.attrelid = 'public.locales'::regclass and a.attname = 'id';
+
+  select format_type(a.atttypid, a.atttypmod) into v_tipo_miembro
+  from pg_attribute a
+  where a.attrelid = 'public.miembros'::regclass and a.attname = 'id';
 
   if to_regclass('public.locales_miembros') is null then
     execute format($f$
       create table public.locales_miembros (
         id         uuid primary key default gen_random_uuid(),
         local_id   %s not null references public.locales(id) on delete cascade,
-        miembro_id text not null references public.miembros(id) on delete cascade,
+        miembro_id %s not null references public.miembros(id) on delete cascade,
         status     text not null default 'active',
         joined_at  timestamptz not null default now()
-      )$f$, v_tipo_local);
+      )$f$, v_tipo_local, v_tipo_miembro);
   else
     alter table public.locales_miembros add column if not exists status text not null default 'active';
     alter table public.locales_miembros add column if not exists joined_at timestamptz not null default now();
 
-    -- miembros.id es TEXT ('mem-…'): alineamos miembro_id si quedó con otro tipo
-    select data_type into v_tipo_miembro
-    from information_schema.columns
-    where table_schema = 'public' and table_name = 'locales_miembros' and column_name = 'miembro_id';
+    -- miembro_id tiene que tener el mismo tipo que miembros.id
+    select format_type(a.atttypid, a.atttypmod) into v_tipo_lm_miembro
+    from pg_attribute a
+    where a.attrelid = 'public.locales_miembros'::regclass and a.attname = 'miembro_id';
 
-    if v_tipo_miembro is distinct from 'text' then
-      alter table public.locales_miembros alter column miembro_id type text using miembro_id::text;
+    if v_tipo_lm_miembro is distinct from v_tipo_miembro then
+      delete from public.locales_miembros lm
+      where not exists (select 1 from public.miembros m where m.id::text = lm.miembro_id::text);
+      execute format(
+        'alter table public.locales_miembros alter column miembro_id type %s using miembro_id::text::%s',
+        v_tipo_miembro, v_tipo_miembro);
     end if;
   end if;
 
@@ -168,7 +177,7 @@ begin
       and confrelid = 'public.miembros'::regclass
   ) then
     delete from public.locales_miembros lm
-    where not exists (select 1 from public.miembros m where m.id = lm.miembro_id);
+    where not exists (select 1 from public.miembros m where m.id::text = lm.miembro_id::text);
     alter table public.locales_miembros
       add constraint locales_miembros_miembro_fk
       foreign key (miembro_id) references public.miembros(id) on delete cascade;
@@ -234,7 +243,7 @@ begin
       select l.id, m.id, 'active'
       from public.locales l
       cross join lateral unnest(l.members_id) as x(mid)
-      join public.miembros m on m.id = x.mid::text
+      join public.miembros m on m.id::text = x.mid::text
       on conflict (local_id, miembro_id) do nothing
     $q$;
   end if;
@@ -256,7 +265,7 @@ begin
     insert into public.locales_miembros (local_id, miembro_id, status)
     select (select id from public.locales limit 1), m.id, 'active'
     from public.miembros m
-    where not exists (select 1 from public.locales_miembros lm where lm.miembro_id = m.id)
+    where not exists (select 1 from public.locales_miembros lm where lm.miembro_id::text = m.id::text)
     on conflict (local_id, miembro_id) do nothing;
   end if;
 end $$;
@@ -270,7 +279,7 @@ from (
   where status = 'active'
   order by miembro_id, joined_at
 ) lm
-where a.local_id is null and a.member_id = lm.miembro_id;
+where a.local_id is null and a.member_id::text = lm.miembro_id::text;
 
 update public.pagos p
 set local_id = lm.local_id
@@ -280,7 +289,7 @@ from (
   where status = 'active'
   order by miembro_id, joined_at
 ) lm
-where p.local_id is null and p.member_id = lm.miembro_id;
+where p.local_id is null and p.member_id::text = lm.miembro_id::text;
 
 -- f) profile_id de los socios creados por un local (cuenta DNI@acuva.app)
 update public.miembros m
@@ -357,12 +366,13 @@ security definer
 set search_path = public
 as $$
   select id from (
-    select m.id, 1 as prioridad
+    select m.id::text as id, 1 as prioridad
     from public.miembros m
     where m.profile_id::text = auth.uid()::text
+       or m.id::text = auth.uid()::text
     union all
     -- Socio creado por un local que todavía no tiene profile_id cargado
-    select m.id, 2
+    select m.id::text, 2
     from public.miembros m
     join public.profiles p on p.id::text = auth.uid()::text
     where m.profile_id is null
@@ -383,7 +393,7 @@ set search_path = public
 as $$
   select exists (
     select 1 from public.locales_miembros lm
-    where lm.miembro_id = p_miembro_id
+    where lm.miembro_id::text = p_miembro_id
       and lm.status = 'active'
       and lm.local_id::text = public.acuva_mi_local_id()
   );
@@ -400,6 +410,7 @@ set search_path = public
 as $$
 declare
   v_local  public.locales%rowtype;
+  v_mid    public.miembros.id%type;
   v_status text;
   v_count  int;
 begin
@@ -409,13 +420,14 @@ begin
     raise exception 'LOCAL_NO_ENCONTRADO';
   end if;
 
-  if not exists (select 1 from public.miembros where id = p_miembro_id) then
+  select id into v_mid from public.miembros where id::text = p_miembro_id;
+  if v_mid is null then
     raise exception 'SOCIO_NO_ENCONTRADO';
   end if;
 
   select status into v_status
   from public.locales_miembros
-  where local_id = v_local.id and miembro_id = p_miembro_id;
+  where local_id = v_local.id and miembro_id = v_mid;
 
   if v_status = 'active' then
     return 'YA_VINCULADO';
@@ -430,7 +442,7 @@ begin
   end if;
 
   insert into public.locales_miembros (local_id, miembro_id, status, joined_at)
-  values (v_local.id, p_miembro_id, 'active', now())
+  values (v_local.id, v_mid, 'active', now())
   on conflict (local_id, miembro_id)
   do update set status = 'active', joined_at = now();
 
@@ -481,6 +493,48 @@ begin
 end;
 $$;
 
+-- El local vincula una ficha que ya existe con ese DNI, solo si la cuenta
+-- de Auth la creó este mismo local (alta desde el panel con un trigger que
+-- ya creó la ficha). Un socio de otro local se suma desde el link del local.
+create or replace function public.link_member_by_dni(p_dni text)
+returns text
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_local_id text := public.acuva_mi_local_id();
+  v_mid      text;
+begin
+  if v_local_id is null then
+    raise exception 'NO_ES_LOCAL';
+  end if;
+
+  select m.id::text into v_mid from public.miembros m where m.dni = btrim(p_dni) limit 1;
+  if v_mid is null then
+    raise exception 'SOCIO_NO_ENCONTRADO';
+  end if;
+
+  if exists (
+    select 1 from public.locales_miembros lm
+    where lm.miembro_id::text = v_mid and lm.local_id::text = v_local_id and lm.status = 'active'
+  ) then
+    return v_mid;
+  end if;
+
+  if not exists (
+    select 1 from auth.users u
+    where u.raw_user_meta_data ->> 'dni' = btrim(p_dni)
+      and u.raw_user_meta_data ->> 'created_by_local_id' = v_local_id
+  ) then
+    raise exception 'DNI_EN_OTRO_LOCAL';
+  end if;
+
+  perform public.acuva_vincular_interno(v_local_id, v_mid);
+  return v_mid;
+end;
+$$;
+
 -- El socio se suma a un local desde su link (crea su ficha si no tiene)
 create or replace function public.join_local(p_slug text)
 returns json
@@ -489,13 +543,16 @@ security definer
 set search_path = public
 as $$
 declare
-  v_local_id text;
-  v_perfil   public.profiles%rowtype;
-  v_miembro  public.miembros%rowtype;
-  v_nombre   text;
-  v_apellido text;
-  v_telefono text;
-  v_res      text;
+  v_local_id  text;
+  v_perfil    public.profiles%rowtype;
+  v_miembro   public.miembros%rowtype;
+  v_tipo_id   text;
+  v_nuevo_id  text;
+  v_nombre    text;
+  v_apellido  text;
+  v_telefono  text;
+  v_dni       text;
+  v_res       text;
 begin
   if auth.uid() is null then
     raise exception 'NO_AUTENTICADO';
@@ -514,21 +571,25 @@ begin
     raise exception 'SOLO_SOCIOS';
   end if;
 
-  -- 1) Ficha propia
-  select * into v_miembro from public.miembros where profile_id::text = auth.uid()::text limit 1;
+  -- 1) Ficha propia (por profile_id o creada con el mismo id que la cuenta)
+  select * into v_miembro
+  from public.miembros
+  where profile_id::text = auth.uid()::text or id::text = auth.uid()::text
+  limit 1;
 
   -- 2) Ficha creada por un local con el mismo DNI
   if v_miembro.id is null then
-    if v_perfil.dni is null or btrim(v_perfil.dni) = '' then
+    v_dni := btrim(coalesce(v_perfil.dni, ''));
+    if v_dni = '' then
       raise exception 'FALTA_DNI';
     end if;
 
-    select * into v_miembro from public.miembros where dni = btrim(v_perfil.dni) limit 1;
+    select * into v_miembro from public.miembros where dni = v_dni limit 1;
 
     if v_miembro.id is not null then
       -- Solo se adopta si es la cuenta DNI@acuva.app que creó el local
       if v_miembro.profile_id is not null
-         or v_perfil.email is distinct from btrim(v_perfil.dni) || '@acuva.app' then
+         or v_perfil.email is distinct from v_dni || '@acuva.app' then
         raise exception 'DNI_EN_USO';
       end if;
       update public.miembros set profile_id = auth.uid() where id = v_miembro.id;
@@ -543,34 +604,44 @@ begin
     select coalesce(u.raw_user_meta_data ->> 'phone', '') into v_telefono
     from auth.users u where u.id = auth.uid();
 
-    insert into public.miembros (
-      id, dni, nombre, apellido, full_name, disciplina, telefono, phone,
-      fecha_ingreso, fecha_vencimiento, estado_membresia, estado_pago,
-      monto_mensual, codigo_qr, profile_id, is_claimed
-    ) values (
-      'mem-' || replace(gen_random_uuid()::text, '-', ''),
-      btrim(v_perfil.dni),
+    -- El id respeta el tipo real de miembros.id (uuid o text)
+    select format_type(a.atttypid, a.atttypmod) into v_tipo_id
+    from pg_attribute a
+    where a.attrelid = 'public.miembros'::regclass and a.attname = 'id';
+
+    v_nuevo_id := case
+      when v_tipo_id = 'uuid' then gen_random_uuid()::text
+      else 'mem-' || replace(gen_random_uuid()::text, '-', '')
+    end;
+
+    -- Literales sin tipo: Postgres los convierte al tipo de cada columna
+    execute format($i$
+      insert into public.miembros (
+        id, dni, nombre, apellido, full_name, disciplina, telefono, phone,
+        fecha_ingreso, fecha_vencimiento, estado_membresia, estado_pago,
+        monto_mensual, codigo_qr, profile_id, is_claimed
+      ) values (
+        %L, %L, %L, %L, %L, 'Sin asignar', %L, %L,
+        current_date, current_date, 'activo', 'pendiente',
+        0, %L, %L, true
+      )$i$,
+      v_nuevo_id,
+      v_dni,
       coalesce(nullif(v_nombre, ''), 'Socio'),
       coalesce(v_apellido, ''),
       btrim(coalesce(v_perfil.full_name, '')),
-      'Sin asignar',
       coalesce(v_telefono, ''),
       nullif(v_telefono, ''),
-      current_date,
-      current_date,
-      'activo',
-      'pendiente',
-      0,
-      'Acuva-' || btrim(v_perfil.dni) || '-' || upper(substr(md5(random()::text), 1, 8)),
-      auth.uid(),
-      true
-    )
-    returning * into v_miembro;
+      'Acuva-' || v_dni || '-' || upper(substr(md5(random()::text), 1, 8)),
+      auth.uid()::text
+    );
+
+    select * into v_miembro from public.miembros where id::text = v_nuevo_id;
   end if;
 
-  v_res := public.acuva_vincular_interno(v_local_id, v_miembro.id);
+  v_res := public.acuva_vincular_interno(v_local_id, v_miembro.id::text);
 
-  return json_build_object('estado', v_res, 'miembro_id', v_miembro.id);
+  return json_build_object('estado', v_res, 'miembro_id', v_miembro.id::text);
 end;
 $$;
 
@@ -591,16 +662,16 @@ begin
   end if;
 
   delete from public.locales_miembros
-  where local_id::text = v_local_id and miembro_id = p_miembro_id;
+  where local_id::text = v_local_id and miembro_id::text = p_miembro_id;
   get diagnostics v_borrados = row_count;
 
   if v_borrados = 0 then
     raise exception 'SOCIO_NO_VINCULADO';
   end if;
 
-  if not exists (select 1 from public.locales_miembros where miembro_id = p_miembro_id) then
+  if not exists (select 1 from public.locales_miembros where miembro_id::text = p_miembro_id) then
     delete from public.miembros
-    where id = p_miembro_id and coalesce(is_claimed, false) = false;
+    where id::text = p_miembro_id and coalesce(is_claimed, false) = false;
     return 'ELIMINADO';
   end if;
 
@@ -640,12 +711,14 @@ $$;
 -- Permisos de ejecución
 revoke all on function public.get_local_by_slug(text) from public;
 revoke all on function public.link_member_to_local(text) from public, anon;
+revoke all on function public.link_member_by_dni(text) from public, anon;
 revoke all on function public.join_local(text) from public, anon;
 revoke all on function public.remove_member_from_local(text) from public, anon;
 revoke all on function public.update_local_slug(text) from public, anon;
 
 grant execute on function public.get_local_by_slug(text) to anon, authenticated;
 grant execute on function public.link_member_to_local(text) to authenticated;
+grant execute on function public.link_member_by_dni(text) to authenticated;
 grant execute on function public.join_local(text) to authenticated;
 grant execute on function public.remove_member_from_local(text) to authenticated;
 grant execute on function public.update_local_slug(text) to authenticated;

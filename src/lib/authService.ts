@@ -356,6 +356,11 @@ export async function registerMemberByLocal(data: RegisterMemberByLocalParams) {
   });
 
   if (error) {
+    if (error.message?.includes('User already registered')) {
+      throw new Error(
+        'Ese DNI ya tiene cuenta en Acuva. Si es socio de otro gimnasio, pedile que escanee el QR de tu local para sumarse.'
+      );
+    }
     throw error;
   }
 
@@ -431,6 +436,8 @@ export async function getCurrentUser(): Promise<User | null> {
 
 const RPC_MESSAGES: Record<string, string> = {
   CUPO_LLENO: 'Este local alcanzó el cupo de socios de su plan. Consultá en recepción.',
+  DNI_EN_OTRO_LOCAL:
+    'Ese DNI ya es socio de otro gimnasio en Acuva. Pedile que escanee el QR de tu local para sumarse.',
   DNI_EN_USO:
     'Ese DNI ya tiene una cuenta. Ingresá con tu DNI como usuario y contraseña, o consultá en recepción.',
   FALTA_DNI: 'Tu cuenta no tiene DNI cargado. Consultá en recepción.',

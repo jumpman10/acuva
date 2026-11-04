@@ -267,8 +267,25 @@ export function saveLocalMembers(members: Member[]) {
   localStorage.setItem(STORAGE_KEY_MEMBERS, JSON.stringify(members));
 }
 
+/** UUID v4 (sirve tanto si miembros.id es uuid como si es text). */
+function newMemberId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+  });
+}
+
+function isUniqueDniError(error: { code?: string; message?: string; details?: string } | null): boolean {
+  if (!error || error.code !== '23505') return false;
+  const text = `${error.message || ''} ${error.details || ''}`;
+  return text.includes('dni');
+}
+
 export async function createMember(memberData: Omit<Member, 'id' | 'codigo_qr' | 'creado_en' | 'fecha_vencimiento'> & { fecha_vencimiento?: string }): Promise<Member> {
-  const id = 'mem-' + Date.now().toString(36) + Math.random().toString(36).substring(2, 6);
+  let id = newMemberId();
   const now = new Date();
 
   // Calculate expiration date automatically if not explicitly given
@@ -297,10 +314,46 @@ export async function createMember(memberData: Omit<Member, 'id' | 'codigo_qr' |
         const retry = await supabase.from('miembros').insert([safeMember]);
         error = retry.error;
       }
+
+      // Multi-local: la ficha con ese DNI ya existe (la creó el trigger de alta
+      // en Auth). Se vincula al local y se completa con los datos del formulario.
+      if (error && activeLocalId && isUniqueDniError(error)) {
+        const { data: existingId, error: linkError } = await supabase.rpc('link_member_by_dni', {
+          p_dni: memberData.dni.trim(),
+        });
+        if (linkError) {
+          throw linkError;
+        }
+        id = String(existingId);
+        newMember.id = id;
+
+        const { id: _ignoredId, codigo_qr: _ignoredQr, creado_en: _ignoredCreated, ...fields } = dbMember;
+        let update = await supabase.from('miembros').update(fields).eq('id', id).select().maybeSingle();
+        if (update.error && (update.error.message?.includes('saldo_pendiente') || update.error.message?.includes('fecha_nacimiento') || update.error.code === '42703')) {
+          const { saldo_pendiente, fecha_nacimiento, ...safeFields } = fields;
+          update = await supabase.from('miembros').update(safeFields).eq('id', id).select().maybeSingle();
+        }
+        if (update.error) {
+          throw update.error;
+        }
+        if (update.data) {
+          newMember.codigo_qr = (update.data as Member).codigo_qr || newMember.codigo_qr;
+          newMember.creado_en = (update.data as Member).creado_en || newMember.creado_en;
+        }
+        error = null;
+      }
+
       if (error) {
         console.error('Error saving member to Supabase:', error);
+        // Con un local activo el error se muestra en el formulario
+        if (activeLocalId) {
+          throw error;
+        }
       }
     } catch (err) {
+      if (activeLocalId) {
+        throw err;
+      }
       console.warn('Error saving member to Supabase:', err);
     }
   }

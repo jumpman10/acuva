@@ -24,8 +24,8 @@ alter table public.miembros enable row level security;
 create policy acuva_miembros_select on public.miembros
   for select to authenticated
   using (
-    id = public.acuva_mi_miembro_id()
-    or public.acuva_es_socio_de_mi_local(id)
+    id::text = public.acuva_mi_miembro_id()
+    or public.acuva_es_socio_de_mi_local(id::text)
   );
 
 -- El local da de alta la ficha; el vínculo se crea con link_member_to_local()
@@ -35,12 +35,12 @@ create policy acuva_miembros_insert on public.miembros
 
 create policy acuva_miembros_update on public.miembros
   for update to authenticated
-  using (public.acuva_es_socio_de_mi_local(id))
-  with check (public.acuva_es_socio_de_mi_local(id));
+  using (public.acuva_es_socio_de_mi_local(id::text))
+  with check (public.acuva_es_socio_de_mi_local(id::text));
 
 create policy acuva_miembros_delete on public.miembros
   for delete to authenticated
-  using (public.acuva_es_socio_de_mi_local(id));
+  using (public.acuva_es_socio_de_mi_local(id::text));
 
 -- ----------------------------------------------------------
 -- accesos
@@ -55,7 +55,7 @@ create policy acuva_accesos_select on public.accesos
   for select to authenticated
   using (
     local_id::text = public.acuva_mi_local_id()
-    or member_id = public.acuva_mi_miembro_id()
+    or member_id::text = public.acuva_mi_miembro_id()
   );
 
 create policy acuva_accesos_write on public.accesos
@@ -76,7 +76,7 @@ create policy acuva_pagos_select on public.pagos
   for select to authenticated
   using (
     local_id::text = public.acuva_mi_local_id()
-    or member_id = public.acuva_mi_miembro_id()
+    or member_id::text = public.acuva_mi_miembro_id()
   );
 
 create policy acuva_pagos_write on public.pagos
@@ -95,7 +95,7 @@ create policy acuva_lm_select on public.locales_miembros
   for select to authenticated
   using (
     local_id::text = public.acuva_mi_local_id()
-    or miembro_id = public.acuva_mi_miembro_id()
+    or miembro_id::text = public.acuva_mi_miembro_id()
   );
 
 -- ----------------------------------------------------------
@@ -116,7 +116,7 @@ create policy acuva_locales_select on public.locales
       select 1 from public.locales_miembros lm
       where lm.local_id = locales.id
         and lm.status = 'active'
-        and lm.miembro_id = public.acuva_mi_miembro_id()
+        and lm.miembro_id::text = public.acuva_mi_miembro_id()
     )
   );
 
