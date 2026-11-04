@@ -7,6 +7,89 @@ const STORAGE_KEY_ACCESS = 'acuva_gym_access_logs';
 const STORAGE_KEY_PAYMENTS = 'acuva_gym_payments';
 const STORAGE_KEY_DISCIPLINES = 'acuva_gym_disciplines';
 
+// ---------------------------------------------------------------------------
+// Local activo (multi-local)
+// Cuando hay un local con sesión, todas las lecturas y escrituras se limitan
+// a ese local. Sin local activo se mantiene el comportamiento anterior.
+// ---------------------------------------------------------------------------
+let activeLocalId: string | null = null;
+
+export function setActiveLocalId(id: string | null) {
+  activeLocalId = id;
+}
+
+export function getActiveLocalId(): string | null {
+  return activeLocalId;
+}
+
+/** Borra los datos cacheados en el navegador (al cerrar sesión). */
+export function clearCachedData() {
+  try {
+    [STORAGE_KEY_MEMBERS, STORAGE_KEY_ACCESS, STORAGE_KEY_PAYMENTS, 'acuva_current_local'].forEach((key) =>
+      localStorage.removeItem(key)
+    );
+  } catch {
+    // Ignore
+  }
+}
+
+const LINK_CHUNK_SIZE = 150;
+
+/** IDs de los socios vinculados (activos) al local. null si falló la consulta. */
+async function fetchLinkedMemberIds(localId: string): Promise<string[] | null> {
+  const supabase = getSupabase();
+  if (!supabase) return null;
+  const { data, error } = await supabase
+    .from('locales_miembros')
+    .select('miembro_id')
+    .eq('local_id', localId)
+    .eq('status', 'active');
+  if (error || !data) {
+    console.warn('Could not fetch linked members', error);
+    return null;
+  }
+  return data.map((row: { miembro_id: string }) => String(row.miembro_id));
+}
+
+async function fetchMembersForLocal(localId: string): Promise<Member[] | null> {
+  const supabase = getSupabase();
+  if (!supabase) return null;
+
+  // 1) Una sola consulta usando la relación locales_miembros → miembros
+  const embedded = await supabase
+    .from('locales_miembros')
+    .select('miembros(*)')
+    .eq('local_id', localId)
+    .eq('status', 'active');
+
+  if (!embedded.error && embedded.data) {
+    return embedded.data
+      .map((row: any) => (Array.isArray(row.miembros) ? row.miembros[0] : row.miembros))
+      .filter(Boolean) as Member[];
+  }
+
+  // 2) Alternativa: IDs y luego miembros por tandas
+  const ids = await fetchLinkedMemberIds(localId);
+  if (ids === null) return null;
+
+  const result: Member[] = [];
+  for (let i = 0; i < ids.length; i += LINK_CHUNK_SIZE) {
+    const chunk = ids.slice(i, i + LINK_CHUNK_SIZE);
+    const { data, error } = await supabase.from('miembros').select('*').in('id', chunk);
+    if (error) {
+      console.warn('Could not fetch members chunk', error);
+      return null;
+    }
+    result.push(...((data || []) as Member[]));
+  }
+  return result;
+}
+
+function isMissingColumnError(error: { code?: string; message?: string } | null, column: string): boolean {
+  if (!error) return false;
+  return error.code === '42703' || Boolean(error.message?.includes(column));
+}
+
 // Migrate legacy ringo storage keys if present
 if (typeof window !== 'undefined' && window.localStorage) {
   try {
@@ -148,6 +231,21 @@ export function getLocalMembers(): Member[] {
 
 export async function fetchMembers(): Promise<Member[]> {
   const supabase = getSupabase();
+
+  if (supabase && activeLocalId) {
+    try {
+      const data = await fetchMembersForLocal(activeLocalId);
+      if (data) {
+        const sorted = [...data].sort((a, b) => (b.creado_en || '').localeCompare(a.creado_en || ''));
+        saveLocalMembers(sorted);
+        return sorted;
+      }
+    } catch (err) {
+      console.warn('Supabase fetch failed, falling back to local storage', err);
+    }
+    return getLocalMembers();
+  }
+
   if (supabase) {
     try {
       const { data, error } = await supabase.from('miembros').select('*').order('creado_en', { ascending: false });
@@ -289,12 +387,35 @@ export async function updateMember(
   return updatedData;
 }
 
+/**
+ * Vincula un socio recién creado al local activo. La base controla el cupo
+ * (max_members) y lanza CUPO_LLENO si no hay lugar.
+ */
+export async function linkMemberToLocal(memberId: string): Promise<void> {
+  const supabase = getSupabase();
+  if (!supabase || !activeLocalId) return;
+  const { error } = await supabase.rpc('link_member_to_local', { p_miembro_id: memberId });
+  if (error) {
+    throw error;
+  }
+}
+
 export async function deleteMember(id: string): Promise<boolean> {
   const current = await fetchMembers();
   const filtered = current.filter(m => m.id !== id);
   saveLocalMembers(filtered);
 
   const supabase = getSupabase();
+
+  // Multi-local: se quita el vínculo; la ficha solo se borra si no queda en otro local
+  if (supabase && activeLocalId) {
+    const { error } = await supabase.rpc('remove_member_from_local', { p_miembro_id: id });
+    if (error) {
+      throw error;
+    }
+    return true;
+  }
+
   if (supabase) {
     try {
       await supabase.from('miembros').delete().eq('id', id);
@@ -446,14 +567,26 @@ export async function logAccess(log: Omit<AccessLog, 'id' | 'timestamp'>): Promi
   const supabase = getSupabase();
   if (supabase) {
     try {
-      await supabase.from('accesos').insert([{
+      const payload: Record<string, unknown> = {
         member_id: newLog.member_id,
         dni: newLog.dni,
         member_name: newLog.member_name,
         disciplina: newLog.disciplina,
         autorizado: newLog.autorizado,
         motivo: newLog.motivo || ''
-      }]);
+      };
+      if (activeLocalId) {
+        payload.local_id = activeLocalId;
+      }
+      let { error } = await supabase.from('accesos').insert([payload]);
+      if (error && payload.local_id && isMissingColumnError(error, 'local_id')) {
+        delete payload.local_id;
+        const retry = await supabase.from('accesos').insert([payload]);
+        error = retry.error;
+      }
+      if (error) {
+        console.error('Could not save access log to Supabase:', error);
+      }
     } catch (e) {
       console.warn('Could not save access log to Supabase', e);
     }
@@ -476,11 +609,15 @@ export async function fetchAccessLogs(): Promise<AccessLog[]> {
   const supabase = getSupabase();
   if (supabase) {
     try {
-      const { data, error } = await supabase
+      let query = supabase
         .from('accesos')
         .select('*')
         .order('timestamp', { ascending: false })
         .limit(100);
+      if (activeLocalId) {
+        query = query.eq('local_id', activeLocalId);
+      }
+      const { data, error } = await query;
       if (!error && data) {
         localStorage.setItem(STORAGE_KEY_ACCESS, JSON.stringify(data));
         return data as AccessLog[];
@@ -490,6 +627,34 @@ export async function fetchAccessLogs(): Promise<AccessLog[]> {
     }
   }
   return getAccessLogs();
+}
+
+/** Últimos ingresos de un socio en un local (portal del socio). */
+export async function fetchMemberAccessLogs(memberId: string, localId: string, limit = 5): Promise<AccessLog[]> {
+  const supabase = getSupabase();
+  if (!supabase) return [];
+
+  const base = () =>
+    supabase
+      .from('accesos')
+      .select('*')
+      .eq('member_id', memberId)
+      .order('timestamp', { ascending: false })
+      .limit(limit);
+
+  const { data, error } = await base().eq('local_id', localId);
+  if (!error && data) {
+    return data as AccessLog[];
+  }
+
+  // Si la migración todavía no agregó local_id, se muestran todos los del socio
+  if (isMissingColumnError(error, 'local_id')) {
+    const retry = await base();
+    return (retry.data || []) as AccessLog[];
+  }
+
+  console.warn('Could not fetch member access logs', error);
+  return [];
 }
 
 // Payments
@@ -520,12 +685,16 @@ export async function logPayment(payment: Omit<PaymentLog, 'id'>): Promise<Payme
       if (newPayment.notas) {
         payload.notas = newPayment.notas;
       }
+      if (activeLocalId) {
+        payload.local_id = activeLocalId;
+      }
 
       let { data, error } = await supabase.from('pagos').insert([payload]).select().single();
 
-      if (error && (error.message?.includes('detalles') || error.message?.includes('notas') || error.code === '42703')) {
+      if (error && (error.message?.includes('detalles') || error.message?.includes('notas') || error.message?.includes('local_id') || error.code === '42703')) {
         delete payload.detalles;
         delete payload.notas;
+        delete payload.local_id;
         const retry = await supabase.from('pagos').insert([payload]).select().single();
         data = retry.data;
         error = retry.error;
@@ -565,11 +734,15 @@ export async function fetchPaymentLogs(): Promise<PaymentLog[]> {
   const supabase = getSupabase();
   if (supabase) {
     try {
-      const { data, error } = await supabase
+      let query = supabase
         .from('pagos')
         .select('*')
         .order('creado_en', { ascending: false })
         .limit(100);
+      if (activeLocalId) {
+        query = query.eq('local_id', activeLocalId);
+      }
+      const { data, error } = await query;
       if (!error && data) {
         const localOnly = getPaymentLogs().filter(
           p => p.id.startsWith('pay-') && !data.some(d => d.member_id === p.member_id && d.fecha === p.fecha)

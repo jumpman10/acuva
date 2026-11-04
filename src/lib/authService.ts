@@ -1,6 +1,6 @@
 import { supabase, getStoredSupabaseConfig } from './supabase';
 import { createClient, type Session, type User } from '@supabase/supabase-js';
-import type { Profile, Local, Member, UserRole } from '../types';
+import type { Profile, Local, Member, UserRole, PublicLocal } from '../types';
 
 export interface RegisterLocalParams {
   email: string;
@@ -27,8 +27,8 @@ export interface RegisterMemberByLocalParams {
   currentLocalId: string;
 }
 
-export interface LoginResult {
-  session: Session;
+/** Todo lo que la app necesita saber del usuario con sesión. */
+export interface UserContext {
   user: User;
   profile: Profile;
   role: UserRole;
@@ -37,21 +37,22 @@ export interface LoginResult {
   activeLocales: Local[];
 }
 
+export interface LoginResult extends UserContext {
+  session: Session;
+}
+
+/** Los DNI se loguean con un email sintético. */
+export function identifierToEmail(identifier: string): string {
+  const trimmed = identifier.trim();
+  return /^\d+$/.test(trimmed) ? `${trimmed}@acuva.app` : trimmed;
+}
+
 /**
- * Authenticates a user by email or DNI.
- * - If identifier is purely numbers, transforms it to `${identifier.trim()}@acuva.app`.
- * - If identifier is an email, passes it directly.
- * - Fetches profile from `profiles` table to determine user role.
- * - Loads related row from `locales` if role is 'local'.
- * - Loads member data and active local(s) if role is 'miembro'.
+ * Autentica por email o DNI y resuelve rol, local y datos de socio.
  */
 export async function login(identifier: string, password: string): Promise<LoginResult> {
-  const trimmedIdentifier = identifier.trim();
-  const isNumericDni = /^\d+$/.test(trimmedIdentifier);
-  const email = isNumericDni ? `${trimmedIdentifier}@acuva.app` : trimmedIdentifier;
-
   const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-    email,
+    email: identifierToEmail(identifier),
     password,
   });
 
@@ -63,13 +64,20 @@ export async function login(identifier: string, password: string): Promise<Login
     throw new Error('No se pudo establecer la sesión de usuario.');
   }
 
-  const { session, user } = authData;
+  const context = await resolveUserContext(authData.user);
+  return { ...context, session: authData.session };
+}
 
-  // Consultar la tabla profiles por id = session.user.id
+/**
+ * Carga profile, rol y relaciones del usuario autenticado.
+ * - role 'local': su fila en `locales`.
+ * - role 'miembro': su ficha en `miembros` y los locales donde está activo.
+ */
+export async function resolveUserContext(user: User): Promise<UserContext> {
   const { data: profile, error: profileError } = await supabase
     .from('profiles')
     .select('*')
-    .eq('id', session.user.id)
+    .eq('id', user.id)
     .single();
 
   if (profileError || !profile) {
@@ -81,109 +89,13 @@ export async function login(identifier: string, password: string): Promise<Login
   let activeLocales: Local[] = [];
 
   if (profile.role === 'local') {
-    // Cargar información de su fila en locales
-    let { data: localData, error: localError } = await supabase
-      .from('locales')
-      .select('*')
-      .eq('profile_id', session.user.id)
-      .maybeSingle();
-
-    if (!localData && !localError) {
-      const { data: fallbackLocal } = await supabase
-        .from('locales')
-        .select('*')
-        .eq('id', session.user.id)
-        .maybeSingle();
-
-      if (fallbackLocal) {
-        localData = fallbackLocal;
-      }
-    }
-
-    if (localError) {
-      console.error('Error al cargar la información del local:', localError);
-    }
-
-    local = localData;
+    local = await fetchOwnLocal(user.id);
   } else if (profile.role === 'miembro') {
-    // Cargar datos de miembros
-    let { data: memberData, error: memberError } = await supabase
-      .from('miembros')
-      .select('*')
-      .eq('profile_id', session.user.id)
-      .maybeSingle();
-
-    if (!memberData && profile.dni) {
-      const { data: dniMember } = await supabase
-        .from('miembros')
-        .select('*')
-        .eq('dni', profile.dni)
-        .maybeSingle();
-
-      if (dniMember) {
-        memberData = dniMember;
-      }
-    }
-
-    if (!memberData) {
-      const { data: idMember } = await supabase
-        .from('miembros')
-        .select('*')
-        .eq('id', session.user.id)
-        .maybeSingle();
-
-      if (idMember) {
-        memberData = idMember;
-      }
-    }
-
-    if (memberError) {
-      console.error('Error al cargar los datos del miembro:', memberError);
-    }
-
-    member = memberData;
-
-    // Cargar el o los locales en los que está activo
-    const localIds: string[] = [];
-
-    if (member?.locals_id && Array.isArray(member.locals_id)) {
-      localIds.push(...member.locals_id);
-    }
-
-    if (member?.id) {
-      try {
-        const { data: relations } = await supabase
-          .from('locales_miembros')
-          .select('local_id, status')
-          .eq('miembro_id', member.id)
-          .eq('status', 'active');
-
-        if (relations && relations.length > 0) {
-          for (const rel of relations) {
-            if (rel.local_id && !localIds.includes(rel.local_id)) {
-              localIds.push(rel.local_id);
-            }
-          }
-        }
-      } catch {
-        // Ignorar si no existe la tabla relacional
-      }
-    }
-
-    if (localIds.length > 0) {
-      const { data: localesData, error: localesError } = await supabase
-        .from('locales')
-        .select('*')
-        .in('id', localIds);
-
-      if (!localesError && localesData) {
-        activeLocales = localesData;
-      }
-    }
+    member = await fetchOwnMember(user.id, profile.dni);
+    activeLocales = member ? await fetchActiveLocalesForMember(member) : [];
   }
 
   return {
-    session,
     user,
     profile,
     role: profile.role,
@@ -192,6 +104,158 @@ export async function login(identifier: string, password: string): Promise<Login
     activeLocales,
   };
 }
+
+/** Restaura el contexto de la sesión guardada (al recargar la página). */
+export async function getSessionContext(): Promise<UserContext | null> {
+  const { url, isConfigured } = getStoredSupabaseConfig();
+  if (!isConfigured && !url && !import.meta.env.VITE_SUPABASE_URL) {
+    return null;
+  }
+
+  const session = await getCurrentSession();
+  if (!session?.user) {
+    return null;
+  }
+  return resolveUserContext(session.user);
+}
+
+async function fetchOwnLocal(userId: string): Promise<Local | null> {
+  const { data: byProfile, error } = await supabase
+    .from('locales')
+    .select('*')
+    .eq('profile_id', userId)
+    .maybeSingle();
+
+  if (error) {
+    console.error('Error al cargar la información del local:', error);
+  }
+  if (byProfile) {
+    return byProfile as Local;
+  }
+
+  const { data: byId } = await supabase
+    .from('locales')
+    .select('*')
+    .eq('id', userId)
+    .maybeSingle();
+
+  return (byId as Local) || null;
+}
+
+async function fetchOwnMember(userId: string, dni?: string): Promise<Member | null> {
+  const { data: byProfile, error } = await supabase
+    .from('miembros')
+    .select('*')
+    .eq('profile_id', userId)
+    .maybeSingle();
+
+  if (error) {
+    console.error('Error al cargar los datos del miembro:', error);
+  }
+  if (byProfile) {
+    return byProfile as Member;
+  }
+
+  if (dni) {
+    const { data: byDni } = await supabase
+      .from('miembros')
+      .select('*')
+      .eq('dni', dni)
+      .maybeSingle();
+    if (byDni) {
+      return byDni as Member;
+    }
+  }
+
+  const { data: byId } = await supabase
+    .from('miembros')
+    .select('*')
+    .eq('id', userId)
+    .maybeSingle();
+
+  return (byId as Member) || null;
+}
+
+async function fetchActiveLocalesForMember(member: Member): Promise<Local[]> {
+  const localIds = new Set<string>();
+
+  try {
+    const { data: relations } = await supabase
+      .from('locales_miembros')
+      .select('local_id, status')
+      .eq('miembro_id', member.id)
+      .eq('status', 'active');
+
+    relations?.forEach((rel) => {
+      if (rel.local_id) localIds.add(String(rel.local_id));
+    });
+  } catch {
+    // La tabla relacional puede no existir todavía
+  }
+
+  // Compatibilidad con el array heredado miembros.locals_id
+  if (Array.isArray(member.locals_id)) {
+    member.locals_id.forEach((id) => localIds.add(String(id)));
+  }
+
+  if (localIds.size === 0) {
+    return [];
+  }
+
+  const { data: localesData, error } = await supabase
+    .from('locales')
+    .select('*')
+    .in('id', Array.from(localIds));
+
+  if (error || !localesData) {
+    return [];
+  }
+
+  return (localesData as Local[]).sort((a, b) => a.name.localeCompare(b.name, 'es'));
+}
+
+// ---------------------------------------------------------------------------
+// Locales: URL pública, vínculo y cupo
+// ---------------------------------------------------------------------------
+
+/** Datos públicos del local para /{slug}. Devuelve null si no existe. */
+export async function getLocalBySlug(slug: string): Promise<PublicLocal | null> {
+  const { data, error } = await supabase.rpc('get_local_by_slug', { p_slug: slug });
+  if (error) {
+    throw error;
+  }
+  if (!data) {
+    return null;
+  }
+  return { ...(data as PublicLocal), id: String((data as PublicLocal).id) };
+}
+
+/** El socio con sesión se suma al local del slug (controla el cupo en la base). */
+export async function joinLocal(slug: string): Promise<'VINCULADO' | 'YA_VINCULADO'> {
+  const { data, error } = await supabase.rpc('join_local', { p_slug: slug });
+  if (error) {
+    throw error;
+  }
+  return (data as { estado: 'VINCULADO' | 'YA_VINCULADO' }).estado;
+}
+
+/** El local cambia su link. Devuelve el slug normalizado que quedó guardado. */
+export async function updateLocalSlug(slug: string): Promise<string> {
+  const { data, error } = await supabase.rpc('update_local_slug', { p_slug: slug });
+  if (error) {
+    throw error;
+  }
+  return data as string;
+}
+
+export function isLocalFull(local: Pick<Local, 'linked_members_count' | 'max_members'> | null): boolean {
+  if (!local) return false;
+  return (local.linked_members_count ?? 0) >= (local.max_members ?? 0);
+}
+
+// ---------------------------------------------------------------------------
+// Registro
+// ---------------------------------------------------------------------------
 
 /**
  * Registers a new local (gym / business).
@@ -298,45 +362,25 @@ export async function registerMemberByLocal(data: RegisterMemberByLocalParams) {
   return authData;
 }
 
+// ---------------------------------------------------------------------------
+// Sesión
+// ---------------------------------------------------------------------------
+
 /**
  * Loads the current local record for the active session, with fallback.
  */
 export async function getCurrentLocal(): Promise<Local | null> {
   const session = await getCurrentSession();
   if (!session?.user) {
-    const cached = localStorage.getItem('acuva_current_local');
-    if (cached) {
-      try {
-        return JSON.parse(cached);
-      } catch {}
-    }
     return null;
   }
 
-  let { data: localData, error: localError } = await supabase
-    .from('locales')
-    .select('*')
-    .eq('profile_id', session.user.id)
-    .maybeSingle();
-
-  if (!localData && !localError) {
-    const { data: fallbackLocal } = await supabase
-      .from('locales')
-      .select('*')
-      .eq('id', session.user.id)
-      .maybeSingle();
-
-    if (fallbackLocal) {
-      localData = fallbackLocal;
-    }
-  }
-
+  const localData = await fetchOwnLocal(session.user.id);
   if (localData) {
-    localStorage.setItem('acuva_current_local', JSON.stringify(localData));
     return localData;
   }
 
-  const defaultLocal: Local = {
+  return {
     id: session.user.id,
     profile_id: session.user.id,
     email: session.user.email || '',
@@ -347,9 +391,6 @@ export async function getCurrentLocal(): Promise<Local | null> {
     linked_members_count: 0,
     members_id: [],
   };
-
-  localStorage.setItem('acuva_current_local', JSON.stringify(defaultLocal));
-  return defaultLocal;
 }
 
 /**
@@ -384,5 +425,54 @@ export async function getCurrentUser(): Promise<User | null> {
   return user;
 }
 
-export { supabase };
+// ---------------------------------------------------------------------------
+// Mensajes de error para la UI
+// ---------------------------------------------------------------------------
 
+const RPC_MESSAGES: Record<string, string> = {
+  CUPO_LLENO: 'Este local alcanzó el cupo de socios de su plan. Consultá en recepción.',
+  DNI_EN_USO:
+    'Ese DNI ya tiene una cuenta. Ingresá con tu DNI como usuario y contraseña, o consultá en recepción.',
+  FALTA_DNI: 'Tu cuenta no tiene DNI cargado. Consultá en recepción.',
+  LOCAL_NO_ENCONTRADO: 'No encontramos este local. Revisá el link o pedile el QR a tu gimnasio.',
+  SOLO_SOCIOS: 'Esta cuenta es de un gimnasio. Para sumarte como socio usá una cuenta de socio.',
+  PERFIL_NO_ENCONTRADO: 'No encontramos tu perfil. Volvé a ingresar o consultá en recepción.',
+  NO_AUTENTICADO: 'Tu sesión expiró. Volvé a ingresar.',
+  NO_ES_LOCAL: 'Esta acción es solo para cuentas de gimnasio.',
+  SOCIO_NO_ENCONTRADO: 'No encontramos la ficha del socio. Recargá la página y probá de nuevo.',
+  SOCIO_NO_VINCULADO: 'Ese socio no pertenece a tu local.',
+  SLUG_INVALIDO: 'El link tiene que tener entre 3 y 40 caracteres: letras, números y guiones.',
+  SLUG_RESERVADO: 'Ese link está reservado por Acuva. Probá con otro.',
+  SLUG_EN_USO: 'Ese link ya lo usa otro local. Probá con otro.',
+};
+
+export function authErrorMessage(err: unknown, fallback = 'Algo salió mal. Probá de nuevo.'): string {
+  const raw = (err as { message?: string })?.message || '';
+
+  for (const [code, message] of Object.entries(RPC_MESSAGES)) {
+    if (raw.includes(code)) return message;
+  }
+
+  if (raw.includes('Invalid login credentials')) {
+    return 'El usuario o la contraseña no coinciden. Si sos socio, probá con tu DNI en los dos campos.';
+  }
+  if (raw.includes('Email not confirmed')) {
+    return 'Todavía no confirmaste tu email. Revisá tu casilla (y spam) y después ingresá.';
+  }
+  if (raw.includes('User already registered')) {
+    return 'Ya existe una cuenta con ese email. Ingresá con tu contraseña.';
+  }
+  if (raw.includes('Password should be at least')) {
+    return 'La contraseña tiene que tener al menos 6 caracteres.';
+  }
+  if (raw.includes('Failed to fetch') || raw.includes('NetworkError')) {
+    return 'No pudimos conectarnos. Revisá tu conexión y probá de nuevo.';
+  }
+  if (raw.includes('supabaseUrl is required')) {
+    return 'La base de datos no está configurada.';
+  }
+
+  return raw || fallback;
+}
+
+export { supabase };

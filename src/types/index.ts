@@ -46,6 +46,17 @@ export interface Local {
   linked_members_count: number;
   avatar_url?: string;
   members_id: string[];
+  /** Segmento de URL público del local: acuva.com.ar/{slug} */
+  slug?: string;
+}
+
+/** Datos públicos de un local que devuelve get_local_by_slug (sin sesión). */
+export interface PublicLocal {
+  id: string;
+  slug: string;
+  name: string;
+  avatar_url?: string | null;
+  is_full: boolean;
 }
 
 export interface Member {

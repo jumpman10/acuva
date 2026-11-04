@@ -147,14 +147,17 @@ export const MemberModal: React.FC<MemberModalProps> = ({
     setFormError(null);
     try {
       // 1. Alta en Supabase Auth cuando se da de alta un nuevo socio
+      let authProfileId: string | undefined;
       if (!member) {
         const localObj = currentLocal || (await getCurrentLocal()) || { id: 'default-local' };
-        await registerMemberByLocal({
+        const authData = await registerMemberByLocal({
           name: trimmedName,
           dni: trimmedDni,
           phone: trimmedPhone || undefined,
           currentLocalId: localObj.id,
         });
+        // Vincula la ficha con su cuenta de Auth (DNI@acuva.app) para el portal del socio
+        authProfileId = authData?.user?.id;
       }
 
       const calculatedVencimiento = fechaVencimiento || calculateNextExpiration(fechaIngreso);
@@ -188,6 +191,7 @@ export const MemberModal: React.FC<MemberModalProps> = ({
         foto_url: fotoUrl.trim(),
         notas: notas.trim(),
         is_claimed: false,
+        ...(authProfileId ? { profile_id: authProfileId } : {}),
       });
 
       // 2. Alerta de confirmación tras el registro exitoso
