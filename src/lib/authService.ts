@@ -499,6 +499,8 @@ const RPC_MESSAGES: Record<string, string> = {
   PASSWORD_NO_COINCIDE: 'Las dos contraseñas no coinciden. Escribilas de nuevo.',
   PASSWORD_CORTA: 'La contraseña tiene que tener al menos 8 caracteres.',
   PASSWORD_ES_DNI: 'Elegí una contraseña distinta de tu DNI.',
+  PASSWORD_DEBIL: 'Esa contraseña es muy fácil de adivinar. Elegí otra, con letras y números.',
+  CUENTA_INCONSISTENTE: 'Tu cuenta quedó a medias. Avisale a tu gimnasio para que te la restablezca.',
   SERVIDOR: 'No pudimos iniciar sesión por un problema nuestro. Probá de nuevo en un rato.',
   // Vinculación de email
   EMAIL_INVALIDO: 'Revisá el email: no parece válido.',
