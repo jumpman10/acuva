@@ -198,17 +198,25 @@ Deno.serve(async (req: Request): Promise<Response> => {
   if (password.length < PASSWORD_MIN) return fail('PASSWORD_CORTA');
   if (password === dni) return fail('PASSWORD_ES_DNI');
 
-  // El id de la ficha va en app_metadata (el cliente no puede escribirlo).
-  // El trigger handle_new_user la vincula de forma atómica: si otra solicitud
-  // ganó, el trigger falla y acá no queda ninguna cuenta creada.
+  // Auth guarda el app_metadata después del insert, así que el trigger no lo
+  // ve. La ficha a reclamar se anota en acuva_claims (solo service_role) y
+  // handle_new_user la consume al crearse el usuario DNI@acuva.app.
+  const { error: claimError } = await admin
+    .from('acuva_claims')
+    .upsert({ email, miembro_id: member.id, created_at: new Date().toISOString() });
+  if (claimError) {
+    console.error('member-login: no se pudo anotar el reclamo', claimError.message);
+    return fail('SERVIDOR');
+  }
+
   const { error: createError } = await admin.auth.admin.createUser({
     email,
     password,
     email_confirm: true,
-    app_metadata: { link_member_id: member.id },
     user_metadata: { role: 'miembro', full_name: member.full_name ?? '', dni },
   });
   if (createError) {
+    await admin.from('acuva_claims').delete().eq('email', email);
     // Se registra el motivo real en los logs de la función; al socio se le
     // dice algo útil en vez de "credenciales inválidas".
     const code = (createError as { code?: string }).code ?? '';
