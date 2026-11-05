@@ -15,7 +15,8 @@
 //                                        inexistente, sin acceso, verificado o
 //                                        contraseña incorrecta), DEMASIADOS_INTENTOS,
 //                                        PASSWORD_NO_COINCIDE, PASSWORD_CORTA,
-//                                        PASSWORD_ES_DNI, SERVIDOR
+//                                        PASSWORD_ES_DNI, PASSWORD_DEBIL,
+//                                        CUENTA_INCONSISTENTE, SERVIDOR
 //
 // El usuario de Auth de un socio básico es DNI@acuva.app. Cuando el socio
 // verifica su email real, Auth le cambia el email a ese mismo usuario y esta
@@ -48,6 +49,8 @@ type ErrorCode =
   | 'PASSWORD_NO_COINCIDE'
   | 'PASSWORD_CORTA'
   | 'PASSWORD_ES_DNI'
+  | 'PASSWORD_DEBIL'
+  | 'CUENTA_INCONSISTENTE'
   | 'SERVIDOR';
 
 function json(body: unknown, status = 200): Response {
@@ -206,8 +209,17 @@ Deno.serve(async (req: Request): Promise<Response> => {
     user_metadata: { role: 'miembro', full_name: member.full_name ?? '', dni },
   });
   if (createError) {
-    console.error('member-login: no se pudo crear la cuenta', createError.message);
-    return registrarFallo();
+    // Se registra el motivo real en los logs de la función; al socio se le
+    // dice algo útil en vez de "credenciales inválidas".
+    const code = (createError as { code?: string }).code ?? '';
+    console.error('member-login: no se pudo crear la cuenta', code, createError.message);
+    if (code === 'weak_password' || /password/i.test(createError.message)) {
+      return fail('PASSWORD_DEBIL');
+    }
+    if (code === 'email_exists' || /already been registered/i.test(createError.message)) {
+      return fail('CUENTA_INCONSISTENTE');
+    }
+    return fail('SERVIDOR');
   }
 
   const { data: created, error: createdSignInError } = await anon.auth.signInWithPassword({ email, password });
