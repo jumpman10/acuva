@@ -4,7 +4,8 @@ import { registerMemberByWeb, authErrorMessage } from '../../lib/authService';
 import { Alert, Button, Field, Input } from '../ui';
 
 export interface RegisterMemberFormProps {
-  localName: string;
+  /** Si falta, es el alta general de Acuva (sin gimnasio). */
+  localName?: string;
   /** Se llama cuando la cuenta quedó creada con sesión abierta. */
   onRegistered: () => Promise<void> | void;
 }
@@ -39,8 +40,8 @@ export const RegisterMemberForm: React.FC<RegisterMemberFormProps> = ({ localNam
       setError('Revisá el DNI: tiene que tener entre 7 y 9 números.');
       return;
     }
-    if (password.length < 6) {
-      setError('La contraseña tiene que tener al menos 6 caracteres.');
+    if (password.length < 8) {
+      setError('La contraseña tiene que tener al menos 8 caracteres.');
       return;
     }
 
@@ -76,8 +77,9 @@ export const RegisterMemberForm: React.FC<RegisterMemberFormProps> = ({ localNam
         <div className="space-y-1">
           <p className="text-sm font-bold text-text-primary">Revisá tu email</p>
           <p className="text-[13px] text-text-secondary leading-snug">
-            Te mandamos un link para confirmar tu cuenta. Después volvé a esta página, ingresá y
-            tocá «Sumarme a {localName}».
+            Te mandamos un link para confirmar tu cuenta. {localName
+              ? `Después volvé a esta página, ingresá y tocá «Sumarme a ${localName}».`
+              : 'Después ingresá con tu email y tu contraseña.'}
           </p>
         </div>
       </div>

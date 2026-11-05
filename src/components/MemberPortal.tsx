@@ -3,7 +3,7 @@ import { Member, MemberProfile, AccessLog, PublicLocal } from '../types';
 import { VirtualCard } from './VirtualCard';
 import { getMembershipTone, formatMoney } from '../lib/status';
 import { fetchMemberAccessLogs, fetchMyMembership } from '../lib/storage';
-import { supabase } from '../lib/supabase';
+import { linkMemberEmail, getPendingEmail, authErrorMessage } from '../lib/authService';
 import { Button, Input, Field, Alert, Card } from './ui';
 import { LocalAvatar, PageLoader, PortalColumn, PortalFooter } from './PortalShell';
 import isologo from '../assets/isologo.png';
@@ -48,7 +48,6 @@ export const MemberPortal: React.FC<MemberPortalProps> = ({
   local,
   hasOtherLocales,
   onSwitchLocal,
-  onRefresh,
 }) => {
   const [member, setMember] = useState<Member | null>(null);
   const [memberError, setMemberError] = useState<string | null>(null);
@@ -59,13 +58,25 @@ export const MemberPortal: React.FC<MemberPortalProps> = ({
   const [isClaimed, setIsClaimed] = useState<boolean>(person.is_claimed !== false);
   const [isClaimModalOpen, setIsClaimModalOpen] = useState(false);
   const [newEmail, setNewEmail] = useState('');
-  const [newPassword, setNewPassword] = useState('');
+  const [pendingEmail, setPendingEmail] = useState<string | null>(null);
   const [claimLoading, setClaimLoading] = useState(false);
   const [claimError, setClaimError] = useState<string | null>(null);
 
   useEffect(() => {
     setIsClaimed(person.is_claimed !== false);
   }, [person.id, person.is_claimed]);
+
+  // Si ya pidió vincular un email y falta confirmarlo, se recuerda el aviso
+  useEffect(() => {
+    if (isClaimed) return;
+    let cancelled = false;
+    getPendingEmail().then((email) => {
+      if (!cancelled) setPendingEmail(email);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [person.id, isClaimed]);
 
   useEffect(() => {
     let cancelled = false;
@@ -100,10 +111,8 @@ export const MemberPortal: React.FC<MemberPortalProps> = ({
     e.preventDefault();
 
     const trimmedEmail = newEmail.trim();
-    const trimmedPassword = newPassword.trim();
-
-    if (!trimmedEmail || !trimmedPassword) {
-      setClaimError('Por favor completá todos los campos.');
+    if (!trimmedEmail) {
+      setClaimError('Escribí tu email.');
       return;
     }
 
@@ -111,30 +120,13 @@ export const MemberPortal: React.FC<MemberPortalProps> = ({
     setClaimError(null);
 
     try {
-      const { error: updateError } = await supabase.auth.updateUser({
-        email: trimmedEmail,
-        password: trimmedPassword,
-      });
-
-      if (updateError) {
-        throw updateError;
-      }
-
-      const { error: rpcError } = await supabase.rpc('claim_member_account', {
-        new_email: trimmedEmail,
-      });
-
-      if (rpcError) {
-        throw rpcError;
-      }
-
-      setIsClaimed(true);
+      // Cambia el email del mismo usuario; recién al confirmar el link queda verificado
+      const sentTo = await linkMemberEmail(trimmedEmail);
+      setPendingEmail(sentTo);
       setIsClaimModalOpen(false);
       setNewEmail('');
-      setNewPassword('');
-      await onRefresh();
-    } catch (err: any) {
-      setClaimError(err.message || 'Error al personalizar la cuenta.');
+    } catch (err) {
+      setClaimError(authErrorMessage(err, 'No pudimos vincular tu email. Probá de nuevo.'));
     } finally {
       setClaimLoading(false);
     }
@@ -182,7 +174,7 @@ export const MemberPortal: React.FC<MemberPortalProps> = ({
       {!isClaimed && (
         <div
           role="region"
-          aria-label="Personalización de cuenta"
+          aria-label="Vinculación de email"
           className="bg-accent-soft border border-accent-border rounded-2xl p-4 flex flex-col gap-3"
         >
           <div className="flex items-start gap-3">
@@ -190,8 +182,9 @@ export const MemberPortal: React.FC<MemberPortalProps> = ({
               <Sparkles className="w-5 h-5" aria-hidden="true" />
             </div>
             <p className="text-sm font-medium text-text-primary leading-snug">
-              Personalizá tu cuenta: agregá tu email y una contraseña propia para mayor seguridad y
-              para sumarte a otros gimnasios.
+              {pendingEmail
+                ? `Te mandamos un link a ${pendingEmail}. Abrilo para terminar de vincular tu email; hasta entonces seguís entrando con tu DNI.`
+                : 'Vinculá tu email para tener una cuenta propia en Acuva y sumarte a otros gimnasios. Después vas a entrar con tu email.'}
             </p>
           </div>
           <Button
@@ -203,7 +196,7 @@ export const MemberPortal: React.FC<MemberPortalProps> = ({
             }}
             className="w-full font-semibold"
           >
-            Personalizar cuenta
+            {pendingEmail ? 'Cambiar email' : 'Vincular email'}
           </Button>
         </div>
       )}
@@ -270,8 +263,8 @@ export const MemberPortal: React.FC<MemberPortalProps> = ({
               <div className="flex items-center gap-2.5">
                 <img src={isologo} alt="Acuva" className="w-8 h-8 object-contain shrink-0" />
                 <div>
-                  <h3 className="font-bold text-base text-text-primary">Personalizá tu cuenta</h3>
-                  <p className="text-xs text-text-muted">Completá tus credenciales de acceso</p>
+                  <h3 className="font-bold text-base text-text-primary">Vinculá tu email</h3>
+                  <p className="text-xs text-text-muted">Te mandamos un link para confirmarlo</p>
                 </div>
               </div>
               <Button
@@ -306,20 +299,9 @@ export const MemberPortal: React.FC<MemberPortalProps> = ({
                 />
               </Field>
 
-              <Field label="Tu nueva contraseña" htmlFor="claim-password">
-                <Input
-                  id="claim-password"
-                  variant="portal"
-                  type="password"
-                  placeholder="••••••••"
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  required
-                  minLength={6}
-                  autoComplete="new-password"
-                  disabled={claimLoading}
-                />
-              </Field>
+              <p className="text-xs text-text-muted leading-snug">
+                Cuando lo confirmes, vas a entrar con este email y tu misma contraseña. El ingreso con DNI se desactiva.
+              </p>
 
               <div className="pt-2 flex flex-col gap-2">
                 <Button
@@ -330,7 +312,7 @@ export const MemberPortal: React.FC<MemberPortalProps> = ({
                   disabled={claimLoading}
                   className="w-full h-[50px] font-semibold"
                 >
-                  Confirmar
+                  Enviar link
                 </Button>
                 <Button
                   type="button"

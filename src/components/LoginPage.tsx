@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
-import { ArrowLeft, ChevronRight, Database, LogOut, QrCode, AlertCircle } from 'lucide-react';
+import React from 'react';
+import { ArrowLeft, Building2, ChevronRight, Database, LogOut, QrCode, AlertCircle, User } from 'lucide-react';
 import type { UserContext } from '../lib/authService';
 import { getStoredSupabaseConfig } from '../lib/supabase';
-import { localDisplayUrl, localPath } from '../lib/routes';
+import { localDisplayUrl, localPath, type LoginAudience } from '../lib/routes';
 import { LoginForm } from './auth/LoginForm';
 import { RegisterLocalForm } from './auth/RegisterLocalForm';
+import { RegisterMemberForm } from './auth/RegisterMemberForm';
 import { Button, Card } from './ui';
 import { LocalAvatar, PageLoader, PortalColumn, PortalFooter } from './PortalShell';
 import isologo from '../assets/isologo.png';
@@ -13,6 +14,8 @@ export type LoginMode = 'login' | 'registro';
 
 export interface LoginPageProps {
   session: UserContext | null;
+  /** Quién ingresa: socio, gimnasio o null (pantalla para elegir). */
+  audience?: LoginAudience | null;
   initialMode?: LoginMode;
   onAuthenticated: (ctx: UserContext) => void;
   /** Vuelve a leer la sesión de Supabase (después de registrarse). */
@@ -23,12 +26,13 @@ export interface LoginPageProps {
 }
 
 /**
- * /login — un solo ingreso para gimnasios y socios.
- * Después de ingresar, App redirige según el rol:
+ * /login elige entre socio y gimnasio; /socio/* y /local/* tienen cada uno su
+ * ingreso y su registro. Después de ingresar, App redirige según el rol:
  *   local → /admin · socio con 1 local → /{slug} · socio con varios → lista acá.
  */
 export const LoginPage: React.FC<LoginPageProps> = ({
   session,
+  audience = null,
   initialMode = 'login',
   onAuthenticated,
   onRefreshSession,
@@ -36,7 +40,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   onLogout,
   onOpenSupabaseConfig,
 }) => {
-  const [mode, setMode] = useState<LoginMode>(initialMode);
+  const mode = initialMode;
   const { isConfigured } = getStoredSupabaseConfig();
   const hasEnvConfig = Boolean(import.meta.env.VITE_SUPABASE_URL);
 
@@ -108,61 +112,110 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     return <PageLoader label="Abriendo tu panel..." />;
   }
 
+  const base = audience ? `/${audience}` : '';
+  const isLocal = audience === 'local';
+
+  const configWarning = !isConfigured && !hasEnvConfig && (
+    <div className="p-3.5 rounded-xl bg-status-warn-soft border border-status-warn-border text-status-warn text-xs space-y-2">
+      <div className="flex items-center gap-2 font-bold">
+        <AlertCircle className="w-4 h-4 shrink-0" aria-hidden="true" />
+        <span>Base de datos no configurada</span>
+      </div>
+      <p className="text-text-secondary text-[11px]">Conectá Supabase para poder ingresar.</p>
+      <Button
+        type="button"
+        variant="secondary"
+        icon={Database}
+        onClick={onOpenSupabaseConfig}
+        className="w-full mt-1"
+      >
+        Configurar Supabase
+      </Button>
+    </div>
+  );
+
+  // Pantalla para elegir
+  if (!audience) {
+    return (
+      <PortalColumn>
+        <div className="flex flex-col gap-2">
+          <img src={isologo} alt="Acuva" className="w-[60px] h-[60px] object-contain mb-1" />
+          <h1 className="text-[28px] font-extrabold tracking-[-0.02em] text-text-primary leading-tight">
+            Ingresá a Acuva
+          </h1>
+          <p className="text-[15px] text-text-muted leading-relaxed">¿Cómo querés ingresar?</p>
+        </div>
+        {configWarning}
+        <div className="flex flex-col gap-3">
+          <Button variant="primary" size="lg" icon={User} onClick={() => onNavigate('/socio/login')} className="w-full h-[54px]">
+            Soy socio
+          </Button>
+          <Button variant="secondary" size="lg" icon={Building2} onClick={() => onNavigate('/local/login')} className="w-full h-[54px]">
+            Tengo un gimnasio
+          </Button>
+        </div>
+        <PortalFooter />
+      </PortalColumn>
+    );
+  }
+
+  const title = isLocal
+    ? mode === 'login' ? 'Ingresá a tu gimnasio' : 'Registrá tu gimnasio'
+    : mode === 'login' ? 'Ingresá a tu carnet' : 'Creá tu cuenta de socio';
+  const subtitle = isLocal
+    ? mode === 'login'
+      ? 'Entrá con tu email para manejar socios, cobros y accesos.'
+      : 'Creá la cuenta y te damos un link y un QR para que tus socios se sumen.'
+    : mode === 'login'
+      ? 'Entrá con tu DNI o con tu email y tu contraseña.'
+      : 'Registrate con tu email para tener tu cuenta en Acuva.';
+
   return (
     <PortalColumn>
       <div className="flex flex-col gap-2">
         <img src={isologo} alt="Acuva" className="w-[60px] h-[60px] object-contain mb-1" />
-        <h1 className="text-[28px] font-extrabold tracking-[-0.02em] text-text-primary leading-tight">
-          {mode === 'login' ? 'Ingresá a Acuva' : 'Registrá tu gimnasio'}
-        </h1>
-        <p className="text-[15px] text-text-muted leading-relaxed">
-          {mode === 'login'
-            ? 'Socios y gimnasios ingresan desde acá. Te llevamos a tu carnet o a tu panel.'
-            : 'Creá la cuenta y te damos un link y un QR para que tus socios se sumen.'}
-        </p>
+        <h1 className="text-[28px] font-extrabold tracking-[-0.02em] text-text-primary leading-tight">{title}</h1>
+        <p className="text-[15px] text-text-muted leading-relaxed">{subtitle}</p>
       </div>
 
-      {!isConfigured && !hasEnvConfig && (
-        <div className="p-3.5 rounded-xl bg-status-warn-soft border border-status-warn-border text-status-warn text-xs space-y-2">
-          <div className="flex items-center gap-2 font-bold">
-            <AlertCircle className="w-4 h-4 shrink-0" aria-hidden="true" />
-            <span>Base de datos no configurada</span>
-          </div>
-          <p className="text-text-secondary text-[11px]">Conectá Supabase para poder ingresar.</p>
-          <Button
-            type="button"
-            variant="secondary"
-            icon={Database}
-            onClick={onOpenSupabaseConfig}
-            className="w-full mt-1"
-          >
-            Configurar Supabase
-          </Button>
-        </div>
-      )}
+      {configWarning}
 
       {mode === 'login' ? (
-        <LoginForm onSuccess={(result) => onAuthenticated(result)} />
-      ) : (
+        <LoginForm
+          onSuccess={(result) => onAuthenticated(result)}
+          identifierLabel={isLocal ? 'Email' : 'DNI o email'}
+          identifierPlaceholder={isLocal ? 'tu@email.com' : '43928104 o tu@email.com'}
+        />
+      ) : isLocal ? (
         <RegisterLocalForm
           onRegistered={async () => {
             const ctx = await onRefreshSession();
             if (ctx) onAuthenticated(ctx);
           }}
-          onBackToLogin={() => setMode('login')}
+          onBackToLogin={() => onNavigate(`${base}/login`)}
+        />
+      ) : (
+        <RegisterMemberForm
+          onRegistered={async () => {
+            const ctx = await onRefreshSession();
+            if (ctx) onAuthenticated(ctx);
+          }}
         />
       )}
 
-      <div className="pt-3 border-t border-border-subtle text-center">
+      <div className="pt-3 border-t border-border-subtle text-center flex flex-col items-center gap-1">
         {mode === 'login' ? (
-          <Button variant="ghost" onClick={() => setMode('registro')} className="text-[13px]">
-            ¿Tenés un gimnasio? Creá tu cuenta
+          <Button variant="ghost" onClick={() => onNavigate(`${base}/registro`)} className="text-[13px]">
+            {isLocal ? '¿Tenés un gimnasio? Creá tu cuenta' : '¿No tenés cuenta? Registrate con tu email'}
           </Button>
         ) : (
-          <Button variant="ghost" icon={ArrowLeft} onClick={() => setMode('login')} className="text-[13px]">
+          <Button variant="ghost" icon={ArrowLeft} onClick={() => onNavigate(`${base}/login`)} className="text-[13px]">
             Ya tengo cuenta
           </Button>
         )}
+        <Button variant="ghost" onClick={() => onNavigate('/login')} className="text-[13px]">
+          {isLocal ? 'Soy socio' : 'Tengo un gimnasio'}
+        </Button>
       </div>
 
       <PortalFooter />

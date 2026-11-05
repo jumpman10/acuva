@@ -1,5 +1,5 @@
 import { supabase, getStoredSupabaseConfig } from './supabase';
-import { createClient, type Session, type User } from '@supabase/supabase-js';
+import type { Session, User } from '@supabase/supabase-js';
 import type { Profile, Local, MemberProfile, UserRole, PublicLocal } from '../types';
 
 export interface RegisterLocalParams {
@@ -20,10 +20,12 @@ export interface RegisterMemberByWebParams {
   phone?: string;
 }
 
-export interface RegisterMemberByLocalParams {
+export interface CreateMemberByLocalParams {
   name: string;
   dni: string;
   phone?: string;
+  /** El local le habilita el ingreso a la app con DNI + contraseña. */
+  accesoApp: boolean;
 }
 
 /** Todo lo que la app necesita saber del usuario con sesión. */
@@ -41,31 +43,106 @@ export interface LoginResult extends UserContext {
   session: Session;
 }
 
-/** Los DNI se loguean con un email sintético. */
-export function identifierToEmail(identifier: string): string {
-  const trimmed = identifier.trim();
-  return /^\d+$/.test(trimmed) ? `${trimmed}@acuva.app` : trimmed;
+/** Un identificador de solo números es un DNI; si no, es un email. */
+export function isDniIdentifier(identifier: string): boolean {
+  return /^\d+$/.test(identifier.trim());
+}
+
+/**
+ * Se lanza cuando el DNI está habilitado pero todavía no tiene contraseña:
+ * la pantalla tiene que pedir que la repita y volver a llamar a login().
+ */
+export class FirstLoginRequiredError extends Error {
+  constructor() {
+    super('PRIMER_INGRESO');
+    this.name = 'FirstLoginRequiredError';
+  }
+}
+
+type MemberLoginResponse =
+  | { status: 'OK'; session: { access_token: string; refresh_token: string } }
+  | { status: 'FIRST_LOGIN_REQUIRED' }
+  | { status: 'ERROR'; code: string };
+
+/**
+ * Ingreso con DNI. Pasa por la Edge Function member-login, que limita los
+ * intentos por DNI e IP y crea la cuenta en el primer ingreso.
+ */
+async function signInWithDni(
+  dni: string,
+  password: string,
+  passwordConfirm?: string
+): Promise<{ session: Session; user: User }> {
+  const { data, error } = await supabase.functions.invoke('member-login', {
+    body: {
+      dni: dni.trim(),
+      password,
+      ...(passwordConfirm !== undefined ? { password_confirm: passwordConfirm } : {}),
+    },
+  });
+
+  if (error) {
+    throw error;
+  }
+
+  const result = data as MemberLoginResponse | null;
+  if (!result) {
+    throw new Error('SERVIDOR');
+  }
+  if (result.status === 'FIRST_LOGIN_REQUIRED') {
+    throw new FirstLoginRequiredError();
+  }
+  if (result.status === 'ERROR') {
+    throw new Error(result.code);
+  }
+
+  const { data: sessionData, error: sessionError } = await supabase.auth.setSession({
+    access_token: result.session.access_token,
+    refresh_token: result.session.refresh_token,
+  });
+  if (sessionError) {
+    throw sessionError;
+  }
+  if (!sessionData.session || !sessionData.user) {
+    throw new Error('No se pudo establecer la sesión de usuario.');
+  }
+  return { session: sessionData.session, user: sessionData.user };
 }
 
 /**
  * Autentica por email o DNI y resuelve rol, local y datos de socio.
+ * - Email: Supabase Auth (gimnasios y socios verificados).
+ * - DNI: member-login (socios básicos). Si es el primer ingreso lanza
+ *   FirstLoginRequiredError; volver a llamar con passwordConfirm.
  */
-export async function login(identifier: string, password: string): Promise<LoginResult> {
-  const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-    email: identifierToEmail(identifier),
-    password,
-  });
+export async function login(
+  identifier: string,
+  password: string,
+  passwordConfirm?: string
+): Promise<LoginResult> {
+  let session: Session;
+  let user: User;
 
-  if (authError) {
-    throw authError;
+  if (isDniIdentifier(identifier)) {
+    ({ session, user } = await signInWithDni(identifier, password, passwordConfirm));
+  } else {
+    const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+      email: identifier.trim(),
+      password,
+    });
+
+    if (authError) {
+      throw authError;
+    }
+    if (!authData.session || !authData.user) {
+      throw new Error('No se pudo establecer la sesión de usuario.');
+    }
+    session = authData.session;
+    user = authData.user;
   }
 
-  if (!authData.session || !authData.user) {
-    throw new Error('No se pudo establecer la sesión de usuario.');
-  }
-
-  const context = await resolveUserContext(authData.user);
-  return { ...context, session: authData.session };
+  const context = await resolveUserContext(user);
+  return { ...context, session };
 }
 
 /**
@@ -265,71 +342,91 @@ export async function registerMemberByWeb(data: RegisterMemberByWebParams) {
 
 /**
  * Alta de un socio desde el panel del local.
- * 1) El local pide un token de un solo uso (prepare_member_signup), que
- *    valida cupo y DNI.
- * 2) Se crea la cuenta en Auth con email DNI@acuva.app y contraseña = DNI,
- *    usando un cliente aislado para no perder la sesión del local.
- * 3) El trigger handle_new_user crea la persona y la vincula al local.
+ * Crea solo la ficha (miembros + local_miembros) con control de cupo, por
+ * RPC. No crea usuario en Auth: si el local habilita el acceso, el socio crea
+ * su contraseña en su primer ingreso con DNI (Edge Function member-login).
  */
-export async function registerMemberByLocal(data: RegisterMemberByLocalParams) {
-  const trimmedDni = data.dni.replace(/\D/g, '');
-  const email = `${trimmedDni}@acuva.app`;
-  const password = trimmedDni;
-  const trimmedPhone = data.phone?.trim() || undefined;
-
-  const { url, anonKey } = getStoredSupabaseConfig();
-  const supabaseUrl = url || import.meta.env.VITE_SUPABASE_URL || '';
-  const supabaseKey = anonKey || import.meta.env.VITE_SUPABASE_ANON_KEY || '';
-
-  if (!supabaseUrl || !supabaseKey) {
-    throw new Error('La base de datos no está configurada.');
-  }
-
-  const { data: token, error: tokenError } = await supabase.rpc('prepare_member_signup', {
-    p_dni: trimmedDni,
-  });
-  if (tokenError) {
-    throw new Error(authErrorMessage(tokenError));
-  }
-
-  const authClient = createClient(supabaseUrl, supabaseKey, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-      detectSessionInUrl: false,
-      storageKey: 'acuva-alta-socio',
-    },
-  });
-
-  const { data: authData, error } = await authClient.auth.signUp({
-    email,
-    password,
-    options: {
-      data: {
-        role: 'miembro',
-        full_name: data.name.trim(),
-        dni: trimmedDni,
-        phone: trimmedPhone,
-        is_claimed: false,
-        alta_token: token,
-      },
-    },
+export async function createMemberByLocal(data: CreateMemberByLocalParams): Promise<{ memberId: string }> {
+  const { data: result, error } = await supabase.rpc('create_member_by_local', {
+    p_dni: data.dni.replace(/\D/g, ''),
+    p_nombre: data.name.trim(),
+    p_telefono: data.phone?.trim() || null,
+    p_acceso: data.accesoApp,
   });
 
   if (error) {
-    if (error.message?.includes('User already registered')) {
-      throw new Error(
-        'Ese DNI ya tiene cuenta en Acuva. Si es socio de otro gimnasio, pedile que escanee el QR de tu local para sumarse.'
-      );
-    }
     throw new Error(authErrorMessage(error));
   }
 
-  if (!authData.user) {
-    throw new Error('No se pudo crear la cuenta del socio. Probá de nuevo.');
+  const memberId = (result as { miembro_id?: string } | null)?.miembro_id;
+  if (!memberId) {
+    throw new Error('No se pudo crear al socio. Probá de nuevo.');
+  }
+  return { memberId };
+}
+
+/** El local habilita o quita el ingreso a la app con DNI + contraseña. */
+export async function setMemberAccess(memberId: string, enabled: boolean): Promise<void> {
+  const { error } = await supabase.rpc('set_member_access', {
+    p_miembro_id: memberId,
+    p_acceso: enabled,
+  });
+  if (error) {
+    throw new Error(authErrorMessage(error));
+  }
+}
+
+/**
+ * El local restablece la contraseña de un socio básico: en su próximo
+ * ingreso con DNI elige una nueva. Un socio verificado no se puede
+ * restablecer desde acá (usa su email).
+ */
+export async function resetMemberPassword(memberId: string): Promise<'REINICIADO' | 'SIN_CUENTA'> {
+  const { data, error } = await supabase.rpc('reset_member_password', { p_miembro_id: memberId });
+  if (error) {
+    throw new Error(authErrorMessage(error));
+  }
+  return data as 'REINICIADO' | 'SIN_CUENTA';
+}
+
+// ---------------------------------------------------------------------------
+// Verificación del email (de básico a verificado)
+// ---------------------------------------------------------------------------
+
+const RESERVED_EMAIL_DOMAIN = '@acuva.app';
+
+/**
+ * El socio con sesión pide cambiar el email de su usuario de Auth por el
+ * real. Supabase manda un link de confirmación a esa casilla; recién al
+ * confirmar cambia el email (el id del usuario no cambia) y un trigger marca
+ * la cuenta como verificada. Hasta entonces sigue entrando con su DNI.
+ */
+export async function linkMemberEmail(email: string): Promise<string> {
+  const trimmed = email.trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
+    throw new Error('EMAIL_INVALIDO');
+  }
+  if (trimmed.endsWith(RESERVED_EMAIL_DOMAIN)) {
+    throw new Error('EMAIL_RESERVADO');
   }
 
-  return authData;
+  const { error } = await supabase.auth.updateUser(
+    { email: trimmed },
+    { emailRedirectTo: `${window.location.origin}/` }
+  );
+  if (error) {
+    throw error;
+  }
+  return trimmed;
+}
+
+/** Email que el socio pidió vincular y todavía no confirmó, si hay uno. */
+export async function getPendingEmail(): Promise<string | null> {
+  const { data, error } = await supabase.auth.getUser();
+  if (error) {
+    return null;
+  }
+  return data.user?.new_email ?? null;
 }
 
 // ---------------------------------------------------------------------------
@@ -387,11 +484,25 @@ const RPC_MESSAGES: Record<string, string> = {
   CUPO_LLENO: 'Este local alcanzó el cupo de socios de su plan. Consultá en recepción.',
   YA_ES_SOCIO: 'Esa persona ya es socia de tu gimnasio.',
   DNI_INVALIDO: 'Revisá el DNI: tiene que tener entre 6 y 9 números.',
+  NOMBRE_REQUERIDO: 'Completá el nombre del socio.',
   ALTA_INVALIDA: 'El alta venció o ya se usó. Volvé a intentarlo.',
   DNI_EN_OTRO_LOCAL:
     'Ese DNI ya es socio de otro gimnasio en Acuva. Pedile que escanee el QR de tu local para sumarse.',
   DNI_EN_USO:
     'Ese DNI ya tiene una cuenta. Ingresá con tu DNI como usuario y contraseña, o consultá en recepción.',
+  SOCIO_VERIFICADO:
+    'Este socio ya vinculó su email. Si olvidó la contraseña, tiene que recuperarla con su email.',
+  // member-login
+  CREDENCIALES_INVALIDAS:
+    'El DNI o la contraseña no coinciden, o tu gimnasio todavía no te habilitó el acceso a la app.',
+  DEMASIADOS_INTENTOS: 'Hiciste demasiados intentos. Esperá unos 15 minutos y probá de nuevo.',
+  PASSWORD_NO_COINCIDE: 'Las dos contraseñas no coinciden. Escribilas de nuevo.',
+  PASSWORD_CORTA: 'La contraseña tiene que tener al menos 8 caracteres.',
+  PASSWORD_ES_DNI: 'Elegí una contraseña distinta de tu DNI.',
+  SERVIDOR: 'No pudimos iniciar sesión por un problema nuestro. Probá de nuevo en un rato.',
+  // Vinculación de email
+  EMAIL_INVALIDO: 'Revisá el email: no parece válido.',
+  EMAIL_RESERVADO: 'Ese email no se puede usar. Probá con otro.',
   FALTA_DNI: 'Tu cuenta no tiene DNI cargado. Consultá en recepción.',
   LOCAL_NO_ENCONTRADO: 'No encontramos este local. Revisá el link o pedile el QR a tu gimnasio.',
   SOLO_SOCIOS: 'Esta cuenta es de un gimnasio. Para sumarte como socio usá una cuenta de socio.',
@@ -413,7 +524,7 @@ export function authErrorMessage(err: unknown, fallback = 'Algo salió mal. Prob
   }
 
   if (raw.includes('Invalid login credentials')) {
-    return 'El usuario o la contraseña no coinciden. Si sos socio, probá con tu DNI en los dos campos.';
+    return 'El email o la contraseña no coinciden. Revisalos y probá de nuevo.';
   }
   if (raw.includes('Email not confirmed')) {
     return 'Todavía no confirmaste tu email. Revisá tu casilla (y spam) y después ingresá.';
@@ -421,14 +532,24 @@ export function authErrorMessage(err: unknown, fallback = 'Algo salió mal. Prob
   if (raw.includes('User already registered')) {
     return 'Ya existe una cuenta con ese email. Ingresá con tu contraseña.';
   }
-  if (raw.includes('Password should be at least')) {
-    return 'La contraseña tiene que tener al menos 6 caracteres.';
+  if (raw.includes('already been registered') || raw.includes('email_exists')) {
+    return 'Ese email ya lo usa otra cuenta. Probá con otro.';
+  }
+  const minLength = raw.match(/Password should be at least (\d+)/);
+  if (minLength) {
+    return `La contraseña tiene que tener al menos ${minLength[1]} caracteres.`;
   }
   if (raw.includes('Database error saving new user')) {
     return 'No se pudo crear la cuenta. Puede que ese DNI ya esté registrado o que el gimnasio haya llegado a su cupo.';
   }
-  if (raw.includes('Failed to fetch') || raw.includes('NetworkError')) {
+  if (raw.includes('Database error updating user')) {
+    return 'No pudimos cambiar el email. Probá con otro.';
+  }
+  if (raw.includes('Failed to fetch') || raw.includes('NetworkError') || raw.includes('Failed to send a request')) {
     return 'No pudimos conectarnos. Revisá tu conexión y probá de nuevo.';
+  }
+  if (raw.includes('non-2xx status code') || raw.includes('Requested function was not found')) {
+    return 'El ingreso con DNI no está disponible en este momento. Probá de nuevo en un rato o consultá en recepción.';
   }
   if (raw.includes('supabaseUrl is required')) {
     return 'La base de datos no está configurada.';
