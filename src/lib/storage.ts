@@ -340,26 +340,23 @@ export type NewMemberData = Omit<Member, 'id' | 'codigo_qr' | 'creado_en' | 'fec
  */
 export async function createMember(memberData: NewMemberData): Promise<Member> {
   const localId = requireLocal();
-  if (!memberData.profile_id) {
-    throw new Error('No se pudo crear la cuenta del socio. Probá de nuevo.');
-  }
-
+  // La ficha ya la creó la RPC create_member_by_local: se busca por DNI.
   const { data: person, error: personError } = await db()
     .from('miembros')
     .select('id')
-    .eq('profile_id', memberData.profile_id)
+    .eq('dni', String(memberData.dni).replace(/\D/g, ''))
     .maybeSingle();
 
   if (personError) throw personError;
   if (!person) {
-    throw new Error('La cuenta del socio se creó pero no quedó vinculada a tu local. Recargá la página.');
+    throw new Error('El socio se creó pero no quedó vinculado a tu local. Recargá la página.');
   }
 
   const fechaVencimiento = memberData.fecha_vencimiento || calculateNextExpiration(memberData.fecha_ingreso);
   const isPagado = memberData.estado_pago === 'pagado';
 
   const personPatch = personUpdates(memberData);
-  delete personPatch.full_name; // ya viene del signUp
+  delete personPatch.full_name; // ya lo cargó la RPC de alta
   if (Object.keys(personPatch).length > 0) {
     const { error } = await db().from('miembros').update(personPatch).eq('id', person.id);
     if (error) throw error;

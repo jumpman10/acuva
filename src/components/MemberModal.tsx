@@ -3,7 +3,7 @@ import { Member, DisciplineItem, PaymentStatus, PaymentMethod, MembershipStatus,
 import { calculateNextExpiration, formatDateISO } from '../lib/dateUtils';
 import { processCarnetPhoto } from '../lib/imageUtils';
 import { deleteMember } from '../lib/storage';
-import { registerMemberByLocal } from '../lib/authService';
+import { createMemberByLocal } from '../lib/authService';
 import { CameraCaptureModal } from './CameraCaptureModal';
 import { Drawer, Button, Field, Input, MemberAvatar } from './ui';
 import { Camera, Upload, Trash2, AlertCircle } from 'lucide-react';
@@ -48,6 +48,7 @@ export const MemberModal: React.FC<MemberModalProps> = ({
   const [metodoPago, setMetodoPago] = useState<PaymentMethod>('Efectivo');
   const [fotoUrl, setFotoUrl] = useState('');
   const [notas, setNotas] = useState('');
+  const [accesoApp, setAccesoApp] = useState(false);
 
   const [loading, setLoading] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -93,6 +94,7 @@ export const MemberModal: React.FC<MemberModalProps> = ({
       setMetodoPago('Efectivo');
       setFotoUrl('');
       setNotas('');
+      setAccesoApp(false);
     }
     setShowDeleteConfirm(false);
     setFormError(null);
@@ -146,16 +148,15 @@ export const MemberModal: React.FC<MemberModalProps> = ({
     setLoading(true);
     setFormError(null);
     try {
-      // 1. Alta en Supabase Auth cuando se da de alta un nuevo socio
-      let authProfileId: string | undefined;
+      // 1. Alta de la ficha con control de cupo (sin usuario en Auth: el socio
+      //    crea su contraseña en su primer ingreso si el acceso está habilitado)
       if (!member) {
-        // Crea la cuenta DNI@acuva.app; la base la vincula a tu local (con control de cupo)
-        const authData = await registerMemberByLocal({
+        await createMemberByLocal({
           name: trimmedName,
           dni: trimmedDni,
           phone: trimmedPhone || undefined,
+          accesoApp,
         });
-        authProfileId = authData.user?.id;
       }
 
       const calculatedVencimiento = fechaVencimiento || calculateNextExpiration(fechaIngreso);
@@ -188,13 +189,15 @@ export const MemberModal: React.FC<MemberModalProps> = ({
         monto_mensual: Number(montoMensual),
         foto_url: fotoUrl.trim(),
         notas: notas.trim(),
-        is_claimed: false,
-        ...(authProfileId ? { profile_id: authProfileId } : {}),
       });
 
       // 2. Alerta de confirmación tras el registro exitoso
       if (!member) {
-        alert('Socio registrado. Puede ingresar desde la app o web usando su DNI como usuario y contraseña');
+        alert(
+          accesoApp
+            ? 'Socio registrado. Ya puede ingresar con su DNI: en el primer ingreso elige su contraseña.'
+            : 'Socio registrado. Podés darle su carnet desde el detalle del socio.'
+        );
       }
 
       onClose();
@@ -502,6 +505,23 @@ export const MemberModal: React.FC<MemberModalProps> = ({
               </div>
             )}
           </div>
+
+          {!member && (
+            <label className="flex items-start gap-3 bg-surface-sunken border border-border-default rounded-xl p-3.5 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={accesoApp}
+                onChange={(e) => setAccesoApp(e.target.checked)}
+                className="mt-0.5 w-4 h-4 accent-accent"
+              />
+              <span className="space-y-0.5">
+                <span className="text-xs font-bold text-text-secondary block">Permitir acceso a la app</span>
+                <span className="text-[11px] text-text-muted block">
+                  El socio ingresa con su DNI y elige su contraseña la primera vez. Si no lo marcás, solo tiene el carnet que le des.
+                </span>
+              </span>
+            </label>
+          )}
 
           {/* Notas */}
           <Field label="Notas u observaciones" hint="Opcional">

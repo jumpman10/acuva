@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Member, AccessLog, PaymentLog } from '../types';
 import {
   getMembershipTone,
@@ -8,13 +8,16 @@ import {
   formatMoney,
 } from '../lib/status';
 import { buildWhatsAppLink } from '../lib/dateUtils';
-import { Drawer, MemberAvatar, StatusBadge, Button } from './ui';
+import { supabase } from '../lib/supabase';
+import { setMemberAccess, resetMemberPassword, authErrorMessage } from '../lib/authService';
+import { Drawer, MemberAvatar, StatusBadge, Button, Alert } from './ui';
 import {
   Banknote,
   Pencil,
   QrCode,
   MessageCircle,
   ScanLine,
+  KeyRound,
 } from 'lucide-react';
 
 export interface MemberDetailDrawerProps {
@@ -38,6 +41,71 @@ export const MemberDetailDrawer: React.FC<MemberDetailDrawerProps> = ({
   onEditar,
   onVerCarnet,
 }) => {
+  // Acceso a la app: solo carnet / habilitado / básico / verificado
+  const [acceso, setAcceso] = useState<{ appAccess: boolean; hasAccount: boolean; verified: boolean } | null>(null);
+  const [accesoBusy, setAccesoBusy] = useState(false);
+  const [accesoMsg, setAccesoMsg] = useState<string | null>(null);
+  const [accesoError, setAccesoError] = useState<string | null>(null);
+
+  const memberId = member?.id;
+  const membershipId = member?.membership_id;
+  useEffect(() => {
+    setAcceso(null);
+    setAccesoMsg(null);
+    setAccesoError(null);
+    if (!isOpen || !memberId || !membershipId) return;
+    let cancelled = false;
+    Promise.all([
+      supabase.from('local_miembros').select('acceso_app').eq('id', membershipId).maybeSingle(),
+      supabase.from('miembros').select('profile_id, is_claimed').eq('id', memberId).maybeSingle(),
+    ]).then(([lm, person]) => {
+      if (cancelled || lm.error || person.error) return;
+      setAcceso({
+        appAccess: Boolean(lm.data?.acceso_app),
+        hasAccount: Boolean(person.data?.profile_id),
+        verified: Boolean(person.data?.is_claimed),
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, memberId, membershipId]);
+
+  const toggleAcceso = async () => {
+    if (!member || !acceso) return;
+    setAccesoBusy(true);
+    setAccesoMsg(null);
+    setAccesoError(null);
+    try {
+      await setMemberAccess(member.id, !acceso.appAccess);
+      setAcceso({ ...acceso, appAccess: !acceso.appAccess });
+    } catch (err) {
+      setAccesoError(authErrorMessage(err, 'No pudimos cambiar el acceso.'));
+    } finally {
+      setAccesoBusy(false);
+    }
+  };
+
+  const resetPassword = async () => {
+    if (!member) return;
+    setAccesoBusy(true);
+    setAccesoMsg(null);
+    setAccesoError(null);
+    try {
+      const result = await resetMemberPassword(member.id);
+      if (result === 'REINICIADO') {
+        setAcceso((prev) => (prev ? { ...prev, appAccess: true, hasAccount: false } : prev));
+        setAccesoMsg('Listo. En su próximo ingreso con DNI va a elegir una contraseña nueva.');
+      } else {
+        setAccesoMsg('Todavía no tiene contraseña: la elige en su primer ingreso.');
+      }
+    } catch (err) {
+      setAccesoError(authErrorMessage(err, 'No pudimos restablecer la contraseña.'));
+    } finally {
+      setAccesoBusy(false);
+    }
+  };
+
   const membership = useMemo(() => {
     if (!member) return null;
     return getMembershipTone(member);
@@ -237,6 +305,43 @@ export const MemberDetailDrawer: React.FC<MemberDetailDrawerProps> = ({
             }}
           />
         </div>
+
+        {/* Acceso a la app */}
+        {acceso && (
+          <div className="space-y-2">
+            <h4 className="text-xs font-bold uppercase tracking-[0.12em] text-text-muted">
+              Acceso a la app
+            </h4>
+            <div className="bg-surface-100 rounded-xl border border-border-subtle p-3.5 space-y-3">
+              {accesoError && <Alert>{accesoError}</Alert>}
+              {accesoMsg && <p className="text-xs text-status-ok">{accesoMsg}</p>}
+              <div className="flex items-center justify-between gap-3 text-xs">
+                <span className="text-text-muted">Estado</span>
+                <span className="text-text-primary font-semibold">
+                  {acceso.verified
+                    ? 'Verificado (entra con su email)'
+                    : acceso.hasAccount
+                      ? 'Básico (entra con DNI)'
+                      : acceso.appAccess
+                        ? 'Habilitado, sin contraseña todavía'
+                        : 'Solo carnet'}
+                </span>
+              </div>
+              {!acceso.verified && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button variant="secondary" size="md" loading={accesoBusy} onClick={toggleAcceso}>
+                    {acceso.appAccess ? 'Quitar acceso' : 'Permitir acceso'}
+                  </Button>
+                  {acceso.hasAccount && (
+                    <Button variant="secondary" size="md" icon={KeyRound} loading={accesoBusy} onClick={resetPassword}>
+                      Restablecer contraseña
+                    </Button>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Lista de datos (Teléfono, Alta, Vence, Cuota, Pago) en filas label/valor */}
         <div className="space-y-2">

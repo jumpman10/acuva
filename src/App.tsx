@@ -458,8 +458,7 @@ export default function App() {
   // ------------------------------------------------------------------
   // Pantallas públicas: landing, /login y /{slug}
   // ------------------------------------------------------------------
-  const loginMode: LoginMode =
-    new URLSearchParams(window.location.search).get('modo') === 'registro' ? 'registro' : 'login';
+  const loginMode: LoginMode = route.name === 'login' ? route.mode : 'login';
 
   let content: React.ReactNode;
 
@@ -470,8 +469,9 @@ export default function App() {
   } else if (route.name === 'login') {
     content = (
       <LoginPage
-        key={loginMode}
+        key={`${route.audience ?? 'elegir'}-${loginMode}`}
         session={session}
+        audience={route.audience}
         initialMode={loginMode}
         onAuthenticated={setSession}
         onRefreshSession={refreshSession}

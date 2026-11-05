@@ -60,7 +60,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate }) => {
             cada uno a la vista. Todo desde el navegador.
           </p>
           <div className="flex flex-col sm:flex-row gap-3 pt-1">
-            <Button variant="primary" size="lg" icon={Building2} onClick={() => onNavigate('/login?modo=registro')}>
+            <Button variant="primary" size="lg" icon={Building2} onClick={() => onNavigate('/local/registro')}>
               Registrar mi gimnasio
             </Button>
             <Button variant="secondary" size="lg" icon={LogIn} onClick={() => onNavigate('/login')}>
