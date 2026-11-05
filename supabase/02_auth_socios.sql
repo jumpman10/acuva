@@ -31,6 +31,11 @@
 -- 1. Acceso a la app por membresía
 --    El local decide a quién le da acceso con DNI + contraseña.
 -- ----------------------------------------------------------
+-- Un socio "solo carnet" o recién habilitado no tiene usuario en Auth todavía.
+-- Si miembros se creó con una versión anterior del esquema, profile_id puede
+-- haber quedado NOT NULL.
+alter table public.miembros alter column profile_id drop not null;
+
 alter table public.local_miembros add column if not exists acceso_app boolean not null default false;
 
 -- Las cuentas que ya creó el flujo anterior (DNI@acuva.app, sin email real)
