@@ -298,6 +298,18 @@ grant execute on function public.reset_member_password(uuid) to authenticated;
 --    El id de la ficha viaja en raw_app_meta_data, que el cliente no puede
 --    escribir (raw_user_meta_data sí, por eso no se usa para esto).
 -- ----------------------------------------------------------
+-- Auth guarda el app_metadata DESPUÉS de insertar el usuario, así que el
+-- trigger no lo puede leer. En su lugar, member-login anota acá (con
+-- service_role) qué ficha va a reclamar el usuario DNI@acuva.app que está por
+-- crear, y handle_new_user la consume en el mismo insert.
+create table if not exists public.acuva_claims (
+  email      text primary key,
+  miembro_id uuid not null references public.miembros(id) on delete cascade,
+  created_at timestamptz not null default now()
+);
+alter table public.acuva_claims enable row level security;
+revoke all on public.acuva_claims from anon, authenticated;
+
 create or replace function public.handle_new_user()
 returns trigger
 language plpgsql
@@ -316,14 +328,19 @@ declare
   v_token      uuid;
   v_alta_local uuid;
 begin
-  -- Primer ingreso de un socio que dio de alta el local
-  begin
-    v_link := nullif(new.raw_app_meta_data ->> 'link_member_id', '')::uuid;
-  exception when others then
-    v_link := null;
-  end;
+  -- Los emails @acuva.app son solo de socios básicos y únicamente los crea
+  -- member-login, que antes anota la ficha en acuva_claims. Cualquier otro
+  -- alta con ese dominio (por ejemplo un signUp directo) se rechaza.
+  if new.email ilike '%@acuva.app' then
+    delete from public.acuva_claims
+    where email = lower(new.email)
+      and created_at > now() - interval '2 minutes'
+    returning miembro_id into v_link;
 
-  if v_link is not null then
+    if v_link is null then
+      raise exception 'EMAIL_RESERVADO';
+    end if;
+
     insert into public.profiles (id, email, role, full_name, avatar_url, dni)
     select new.id, new.email, 'miembro'::user_role, m.full_name, m.avatar_url, m.dni
     from public.miembros m
